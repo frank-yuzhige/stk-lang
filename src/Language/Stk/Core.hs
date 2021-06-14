@@ -59,7 +59,7 @@ fromSingleton = hHead
 
 -- | get a value from a 0 arity `stk` fn.
 get :: Fn '[] '[a] -> a
-get = fromSingleton . runStk
+get f = fromSingleton $ app f HNil
 
 type (:++:) :: [*] -> [*] -> [*]
 type as :++: bs = (HAppendListR as bs)
@@ -72,7 +72,7 @@ instance (ts ~ ts') => Base' '[] ts ts' where
   base Proxy n = n
 
 instance (a ~ t, Base' as bs ts) => Base' (a : as) bs (t : ts) where
-  base Proxy (_ ::: ts) = base (Proxy :: Proxy as) ts
+  base Proxy (_ ::: ts) = base (Proxy @as) ts
 
 -- | Find the front stack: [..front, ..base] = total
 class Front' as bs ts | as bs -> ts where
@@ -82,7 +82,7 @@ instance (bs ~ ts) => Front' '[] bs ts where
   front _ _ = HNil
 
 instance (Front' as bs ts, a ~ t) => Front' (a : as) bs (t : ts) where
-  front _ (t ::: ts) = t ::: front (Proxy :: Proxy bs) ts
+  front _ (t ::: ts) = t ::: front (Proxy @bs) ts
 
 type Append' a b ab = (HAppendList a b, HAppendListR a b ~ ab)
 
@@ -107,12 +107,12 @@ outbase s fn = flip merge s . fn
 
 -- | Rebase a `stk` function (fn a -> b) to (fn [..a, ..s] -> [..b, ..s]), with the provided base stack `s` 
 rebase :: forall a b s as bs. (Merge a s as, Merge b s bs) => Stk s -> Fn a b -> Fn as bs
-rebase s = outbase s . inbase (Proxy :: Proxy s)
+rebase s = outbase s . inbase (Proxy @s)
 
 -- | evaluate the stk stack as such:
 --   [(fn a1 .. an -> b1 .. bn), a1, .., an, as] => [b1, .., bn, as]
 eval :: forall a b s as bs. (Merge a s as, Merge b s bs) => Fn (Fn a b : as) bs
-eval (fn ::: as) = rebase (base (Proxy :: Proxy a) as) fn as
+eval (fn ::: as) = rebase (base (Proxy @a) as) fn as
 
 -- | Apply stk fn to the stack
 app :: forall a b s as bs. (Merge a s as, Merge b s bs) => Fn a b -> Fn as bs
@@ -140,7 +140,7 @@ instance StepX HZero f s where
   stepX _ = id
 
 instance (StepX n f s) => StepX (HSucc n) (a -> f) (a : s) where
-  stepX _ = stepX (Proxy :: Proxy n) . eval . top lifn
+  stepX _ = stepX (Proxy @n) . eval . top lifn
 
 type Nat2HNat :: Nat -> HNat
 type family Nat2HNat n = c where
@@ -151,17 +151,17 @@ type family Nat2HNat n = c where
 --   by the provided type that comes with `Proxy`.  
 lifnX :: forall n n' a as. (Nat2HNat n' ~ n, StepX n a as)
       => Proxy n' -> a -> Stk as -> Stk (StepDownF n a : StepDownS n as)
-lifnX n f = stepX (Proxy :: Proxy n) . push f
+lifnX n f = stepX (Proxy @n) . push f
 
 lifn0 :: a -> Fn0 a
 lifn0 = push
 
 -- | Lift a haskell function to stk fn (arity 2)
 lifn2 :: (a -> b -> c) -> Fn '[a, b] '[c]
-lifn2 = lifnX (Proxy :: Proxy 2)
+lifn2 = lifnX (Proxy @2)
 
 lifn3 :: (a -> b -> c -> d) -> Fn '[a, b, c] '[d]
-lifn3 = lifnX (Proxy :: Proxy 3)
+lifn3 = lifnX (Proxy @3)
 
 -- | Apply Haskell function to the top of the stack
 top :: (a -> b) -> Stk (a : as) -> Stk (b : as)
@@ -300,19 +300,17 @@ instance HomoStk a HZero '[] where
   fromList' _ _ = HNil
 
 instance (HomoStk a n s) => HomoStk a (HSucc n) (a : s) where
-  asList    _ (a ::: s) = a : asList (Proxy :: Proxy n) s
+  asList    _ (a ::: s) = a : asList (Proxy @n) s
   fromList' _ []        = error "Failed to construct a homogeneous stack due to insufficient elem in list"
-  fromList' _ (a :   s) = a ::: fromList' (Proxy :: Proxy n ) s
+  fromList' _ (a :   s) = a ::: fromList' (Proxy @n) s
 
 map :: forall a b n as bs. (HomoStk a n as, HomoStk b n bs) => Fn '[Fn '[a] '[b], Stk as] '[Stk bs]
 map (fn ::: as ::: _)
   = singleton
-  . fromList' n
+  . fromList' (Proxy @n)
   . Prelude.map (hHead . fn . singleton)
-  . asList n
+  . asList (Proxy @n)
   $ as
-  where
-    n = Proxy :: Proxy n
 
 {- Recursion combinators -}
 
@@ -344,11 +342,10 @@ catarec :: forall a b n as. (HomoStk a n as)
 catarec (f ::: b ::: as ::: _)
   = singleton
   . Prelude.foldr f' b
-  . asList n
+  . asList (Proxy @n)
   $ as
   where
-    n        = Proxy :: Proxy n
-    f' k acc = fromSingleton . runStk $ put acc |> put k |> f
+    f' k acc = get $ put acc |> put k |> f
 
 -- TODO: implement me (non-deterministic generated stk size)
 -- | anamorphism aka unfold
