@@ -25,7 +25,9 @@ source-repository head
 
 library
   exposed-modules:
+      Language.Stk
       Language.Stk.Core
+      Language.Stk.Prelude
       Language.Stk.Quasi
       Lib
   other-modules:
@@ -37,7 +39,10 @@ library
     , base >=4.7 && <4.12
     , fixed-list >=0.1.6
     , ghc-prim >=0.7.0
+    , haskell-src-meta >=0.8.7
+    , megaparsec >=9.0.0
     , mtl >=2.2.2
+    , syb >=0.7.2.1
     , template-haskell >=2.17.0.0
   default-language: Haskell2010
 
@@ -53,8 +58,11 @@ executable stk-lang-exe
     , base >=4.7 && <4.12
     , fixed-list >=0.1.6
     , ghc-prim >=0.7.0
+    , haskell-src-meta >=0.8.7
+    , megaparsec >=9.0.0
     , mtl >=2.2.2
     , stk-lang
+    , syb >=0.7.2.1
     , template-haskell >=2.17.0.0
   default-language: Haskell2010
 
@@ -71,7 +79,10 @@ test-suite stk-lang-test
     , base >=4.7 && <4.12
     , fixed-list >=0.1.6
     , ghc-prim >=0.7.0
+    , haskell-src-meta >=0.8.7
+    , megaparsec >=9.0.0
     , mtl >=2.2.2
     , stk-lang
+    , syb >=0.7.2.1
     , template-haskell >=2.17.0.0
   default-language: Haskell2010
