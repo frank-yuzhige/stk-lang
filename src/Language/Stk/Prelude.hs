@@ -40,7 +40,7 @@ pop = hTail
 
 -- | Duplicate the top value
 dup :: Fn '[a] '[a, a]
-dup (HCons a as) = HCons a (HCons a as)
+dup = dupX (Proxy @1)
 
 -- | Create a sub-stk on the current stk
 new :: Fn '[] '[Stk '[]]
@@ -57,18 +57,6 @@ uncons ((a ::: stk) ::: _) = runStk $ put stk |> put a
 -- | extract all elements from the sub-stk to the current stk
 flat :: Fn '[Stk a] a
 flat (stk ::: _) = stk
-
--- | Call the function at the top onto the remaining stack
-class Call' as rs where
-  call :: (LCheck as, LCheck rs) => Fn (Fn as rs : as) rs
-
-type Call as rs = (Call' as rs, LCheck as, LCheck rs)
-
-instance Call' '[] rs where
-  call = eval
-
-instance (Call' as rs) => Call' (a : as) rs where
-  call = eval
 
 -- | Function composition
 compose :: Fn '[Fn a b, Fn b c] '[Fn a c]
@@ -93,6 +81,8 @@ swap (a ::: b ::: _) = b ::: a ::: HNil
 cond :: Fn '[Bool, a, a] '[a]
 cond = lifn3 $ \b tr fl -> if b then tr else fl
 
+-- | Maths
+
 add, sub, mul :: Num a => Fn '[a, a] '[a]
 add = lifn2 (+)
 sub = lifn2 (-)
@@ -102,6 +92,9 @@ div, mod, pow :: Integral a => Fn '[a, a] '[a]
 div = lifn2 Prelude.div
 mod = lifn2 Prelude.mod
 pow = lifn2 (Prelude.^)
+
+neg :: Num a => Fn '[a] '[a]
+neg = lifn negate
 
 fpow :: Floating a => Fn '[a, a] '[a]
 fpow = lifn2 (**)
@@ -141,22 +134,7 @@ instance (FListLengthEq f n) => FListLengthEq (Cons f) (HSucc n)
 
 type FHListSameLength f h n = (FixedList f, FListLengthEq f n, HLengthEq h n)
 
--- | Proof for the stack to be homogeneous
-class (HLengthEq stk n) => HomoStk a n stk | stk -> n, a n -> stk where
-  asList    :: Proxy n -> Stk stk -> [a]
-  fromList' :: Proxy n -> [a] -> Stk stk  -- ^ partial
-
--- TODO: refactor using fixed-size list
-instance HomoStk a HZero '[] where
-  asList    _ _ = []
-  fromList' _ _ = HNil
-
-instance (HomoStk a n s) => HomoStk a (HSucc n) (a : s) where
-  asList    _ (a ::: s) = a : asList (Proxy @n) s
-  fromList' _ []        = error "Failed to construct a homogeneous stack due to insufficient elem in list"
-  fromList' _ (a :   s) = a ::: fromList' (Proxy @n) s
-
-map :: forall a b n as bs. (HomoStk a n as, HomoStk b n bs) => Fn '[Fn '[a] '[b], Stk as] '[Stk bs]
+map :: forall a b n as bs. (HomStk a n as, HomStk b n bs) => Fn '[Fn '[a] '[b], Stk as] '[Stk bs]
 map (fn ::: as ::: _)
   = singleton
   . fromList' (Proxy @n)
@@ -185,7 +163,7 @@ primrec (agg ::: next ::: stop ::: b ::: s ::: _) = app go (s ::: HNil)
         (isStop ::: _) = stop stk
 
 -- | catamorphism aka fold
-catarec :: forall a b n as. (HomoStk a n as)
+catarec :: forall a b n as. (HomStk a n as)
         => Fn '[Fn '[a, b] '[b]  -- aggregation function
                ,b                -- base value
                ,Stk as           -- stack
@@ -201,7 +179,7 @@ catarec (f ::: b ::: as ::: _)
 
 -- TODO: implement me (non-deterministic generated stk size)
 -- | anamorphism aka unfold
-anarec :: forall a b n as. (HomoStk a n as)
+anarec :: forall a b n as. (HomStk a n as)
        => Fn '[Fn '[b] '[Maybe (Stk '[a, b])]  -- generation function
               ,b                               -- base value
               ]
@@ -215,6 +193,3 @@ factorial = get $
   put 1 |> put sub |> fflip |> curry |> call |>
   put mul |>
   put primrec |> curry |> call |> curry |> call |> curry |> call |> curry |> call
-
-
-some = ((put (1)) |> put (1) |> put (eq) |> (curry) |> (call))

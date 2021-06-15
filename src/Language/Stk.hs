@@ -20,3 +20,7 @@ fact = [decl|
   &mul
   primrec
 |]
+
+dupcallTest = [decl| 0 3 6 &add dupcall |]
+
+composeTest = [decl| &swap &swap compose |]

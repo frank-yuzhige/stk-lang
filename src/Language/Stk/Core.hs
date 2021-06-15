@@ -39,7 +39,11 @@ type T t    = Fn '[] t
 
 -- | Run the `stk` program on an empty execution stack 
 runStk :: (Stk '[] -> b) -> b
-runStk = ($ HNil)
+runStk = runStk' HNil
+
+-- | Run the `stk` program on a given execution stack
+runStk' :: forall stk a. Stk stk -> (Stk stk -> a) -> a 
+runStk' = flip ($)
 
 -- | Push a value on to the stack
 push :: a -> Stk as -> Stk (a : as)
@@ -79,6 +83,11 @@ type Merge a b ab = (Base' a b ab, Front' a b ab, Append' a b ab)
 
 -- | Trivial proofs on top of `Merge`, make GHC happy
 type LCheck c = (c ~ HAppendListR c '[], Base' c '[] c, Front' c '[] c, HAppendList c '[])
+
+type LChecks :: [[*]] -> Constraint
+type family LChecks xs = c where
+  LChecks '[] = ()
+  LChecks (t : ts) = (LCheck t, LChecks ts)
 
 -- | `Data.HList.hAppend` with `Merge` proof present
 merge :: forall a b ab. (Merge a b ab) => Stk a -> Stk b -> Stk ab
@@ -150,6 +159,55 @@ lifn2 = lifnX (Proxy @2)
 
 lifn3 :: (a -> b -> c -> d) -> Fn '[a, b, c] '[d]
 lifn3 = lifnX (Proxy @3)
+
+-- | Call the function at the top onto the remaining stack
+class Call' as rs where
+  call :: LChecks '[as, rs] => Fn (Fn as rs : as) rs
+  call = eval
+
+type Call as rs = (Call' as rs, LCheck as, LCheck rs)
+
+instance Call' '[] rs
+
+instance (Call' as rs) => Call' (a : as) rs
+
+
+-- | Proof for the stack to be homogeneous
+class (HLengthEq stk n) => HomStk a n stk | stk -> n, a n -> stk where
+  asList    :: Proxy n -> Stk stk -> [a]
+  fromList' :: Proxy n -> [a] -> Stk stk  -- ^ partial
+
+-- TODO: refactor using fixed-size list
+instance HomStk a (HSucc HZero) '[a] where
+  asList    _ _ = []
+  fromList' _   = (::: HNil) . head
+
+instance (HomStk a n s) => HomStk a (HSucc n) (a : s) where
+  asList    _ (a ::: s) = a  :  asList    (Proxy @n) s
+  fromList' _ (a  :  s) = a ::: fromList' (Proxy @n) s
+  fromList' _ []        = error "Failed to construct a homogeneous stack due to insufficient elem in list"
+
+-- | Proof for the stack to be able to duplicate its top n elements
+class (Front' a as aas) => Dup' n a as aas | n as -> aas a where
+  dup' :: (HTake n as a, Merge a as aas) => Proxy n -> Fn as aas
+
+type Dup n a as aas = (Dup' n a as aas, Merge a as aas, HTake n as a, HLengthEq a n, HLengthGe as n)
+
+instance Dup' HZero '[] as as where
+  dup' _ = id
+
+instance (Dup n r rs rrs, Merge (a : r) (a : rs) arars) => Dup' (HSucc n) (a : r) (a : rs) arars where
+  dup' _ (a ::: rs) = merge (a ::: r) (a ::: rs)
+    where 
+      r = hTake (Proxy @n) rs
+
+dupX :: forall n' a as aas n. (Nat2HNat n' ~ n, Dup n a as aas) 
+     => Proxy n' -> Fn as aas
+dupX _ = dup' (Proxy @n)
+
+dupcall :: forall a s sa n aa. (LChecks '[a, s, sa, aa], Merge a a aa, Merge s a sa, Dup n a a aa) 
+        => Fn (Fn a s : a) sa
+dupcall (fn ::: a) = runStk' a $ dup' (Proxy @n) |> fn
 
 -- | Apply Haskell function to the top of the stack
 top :: (a -> b) -> Stk (a : as) -> Stk (b : as)
