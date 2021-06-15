@@ -30,15 +30,14 @@ import qualified Language.Stk.Core as Stk
 {-
 stk language syntax:
 
-module = [stk|
+[stk|>STK   # dependency qualified namespace
+
+  # function definition
   four = 1 3 &+ call;
 
   three = 1 4 -;
 
   seven = three four +
-
-@main:
-  seven
 |]
 
 -}

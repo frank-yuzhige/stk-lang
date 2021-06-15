@@ -111,7 +111,7 @@ rebase s = outbase s . inbase (Proxy @s)
 eval :: forall a b s as bs. (Merge a s as, Merge b s bs) => Fn (Fn a b : as) bs
 eval (fn ::: as) = rebase (base (Proxy @a) as) fn as
 
--- | Apply stk fn to the stack
+-- | Apply stk fn to tdue to he stack
 app :: forall a b s as bs. (Merge a s as, Merge b s bs) => Fn a b -> Fn as bs
 app fn = eval . push fn
 
@@ -173,19 +173,22 @@ instance (Call' as rs) => Call' (a : as) rs
 
 
 -- | Proof for the stack to be homogeneous
+-- TODO: refactor using fixed-size list
 class (HLengthEq stk n) => HomStk a n stk | stk -> n, a n -> stk where
   asList    :: Proxy n -> Stk stk -> [a]
   fromList' :: Proxy n -> [a] -> Stk stk  -- ^ partial
 
--- TODO: refactor using fixed-size list
-instance HomStk a (HSucc HZero) '[a] where
+instance HomStk a HZero '[] where
   asList    _ _ = []
-  fromList' _   = (::: HNil) . head
+  fromList' _ _ = HNil
 
 instance (HomStk a n s) => HomStk a (HSucc n) (a : s) where
   asList    _ (a ::: s) = a  :  asList    (Proxy @n) s
   fromList' _ (a  :  s) = a ::: fromList' (Proxy @n) s
-  fromList' _ []        = error "Failed to construct a homogeneous stack due to insufficient elem in list"
+  fromList' _ []        = error "Failed to construct a homogeneous stack: Insufficient elem in list!"
+
+-- | Proof for the hom-stk to also be non-empty
+type NonEmptyHomStk a n stk = (HomStk a n stk, HLt HZero n ~ 'True)
 
 -- | Proof for the stack to be able to duplicate its top n elements
 class (Front' a as aas) => Dup' n a as aas | n as -> aas a where

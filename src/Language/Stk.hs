@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 module Language.Stk where
@@ -6,7 +7,7 @@ import Language.Stk.Quasi
 import Language.Stk.Core
 import Language.Stk.Prelude
 
-import Prelude hiding (curry)
+import Prelude hiding (curry, map, negate)
 
 n = [decl| 1 2 -3 |]
 
