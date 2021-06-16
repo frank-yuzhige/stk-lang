@@ -212,6 +212,14 @@ dupcall :: forall a s sa n aa. (LChecks '[a, s, sa, aa], Merge a a aa, Merge s a
         => Fn (Fn a s : a) sa
 dupcall (fn ::: a) = runStk' a $ dup' (Proxy @n) |> fn
 
+map :: forall a b n as bs. (HomStk a n as, HomStk b n bs) => Fn '[Fn '[a] '[b], Stk as] '[Stk bs]
+map (fn ::: as ::: _)
+  = singleton
+  . fromList' (Proxy @n)
+  . Prelude.map (hHead . fn . singleton)
+  . asList (Proxy @n)
+  $ as
+
 -- | Apply Haskell function to the top of the stack
 top :: (a -> b) -> Stk (a : as) -> Stk (b : as)
 top f (a ::: as) = f a ::: as
@@ -226,7 +234,7 @@ fromSingleton = hHead
 
 -- | get a value from a 0 arity `stk` fn.
 get :: Fn '[] '[a] -> a
-get f = fromSingleton $ app f HNil
+get = fromSingleton . runStk
 
 a |> b = a >>> app b
 a <| b = b >>> app a

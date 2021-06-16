@@ -7,21 +7,24 @@ import Language.Stk.Quasi
 import Language.Stk.Core
 import Language.Stk.Prelude
 
-import Prelude hiding (curry, map, negate)
+import qualified Prelude as P
+
 
 n = [decl| 1 2 -3 |]
 
-f = [decl| 1 2 add 3 mul |]
+f = [decl| 1 2 + 3 * |]
 
 fact = [decl| 
   10
   1 
-  1  &eq  curry call 
-  -1 &add curry call
-  &mul
+  1  (eq) curry ! 
+  -1 (+) curry !
+  (*)
   primrec
 |]
 
-dupcallTest = [decl| 0 3 6 &add dupcall |]
+dupcallTest = [decl| 0 3 6 ((+)) call dupcall |]
 
-composeTest = [decl| &swap &swap compose |]
+newTest = [decl| [] 1 : 2 : 3  :|]
+
+composeTest = [decl| (swap) (swap) compose |]

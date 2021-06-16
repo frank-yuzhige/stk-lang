@@ -29,8 +29,8 @@ import Data.HList
 import Data.FixedList ( Cons((:.)), FixedList, Nil(..) )
 import qualified Data.FixedList as F
 
-import Prelude hiding ( const, div, mod, map, and, or, not, curry, uncurry )
-import qualified Prelude
+import Prelude hiding ( const, div, mod, map, and, or, not, curry, uncurry, flip )
+import qualified Prelude as P
 
 {--- Functions ---}
 
@@ -43,12 +43,12 @@ dup :: Fn '[a] '[a, a]
 dup = dupX (Proxy @1)
 
 -- | Create a sub-stk on the current stk
-new :: Fn '[] '[Stk '[]]
-new = singleton
+_newStk :: Fn '[] '[Stk '[]]
+_newStk = singleton
 
 -- | Append the top element to the sub-stk
-cons :: Fn '[a, Stk as] '[Stk (a : as)]
-cons (a ::: stk ::: _) = singleton $ a ::: stk
+_cons :: Fn '[a, Stk as] '[Stk (a : as)]
+_cons (a ::: stk ::: _) = singleton $ a ::: stk
 
 -- | Dual of `cons`, extract the top element from the sub-stk to the current stk
 uncons :: Fn '[Stk (a : as)] '[a, Stk as]
@@ -69,9 +69,9 @@ uncurry :: forall a as r. (LCheck as, LCheck r)
          => Fn '[Fn '[a] '[Fn as r]] '[Fn (a : as) r]
 uncurry (fn ::: _) = singleton $ \stk -> eval $ app fn stk
 
-fflip :: forall a b c. LCheck c
+flip :: forall a b c. LCheck c
       => Fn '[Fn '[a, b] c] '[Fn '[b, a] c]
-fflip (fn ::: _) = singleton $ \(b ::: a ::: _) -> app fn (a ::: b ::: HNil)
+flip (fn ::: _) = singleton $ \(b ::: a ::: _) -> app fn (a ::: b ::: HNil)
 
 -- | Swap 2 elements on top of the stack
 swap :: Fn '[a, b] '[b, a]
@@ -83,34 +83,41 @@ cond = lifn3 $ \b tr fl -> if b then tr else fl
 
 -- | Maths
 
-add, sub, mul :: Num a => Fn '[a, a] '[a]
-add = lifn2 (+)
-sub = lifn2 (-)
-mul = lifn2 (*)
+(+), (-), (*) :: Num a => Fn '[a, a] '[a]
+(+) = lifn2 (P.+)
+(-) = lifn2 (P.-)
+(*) = lifn2 (P.*)
 
-div, mod, pow :: Integral a => Fn '[a, a] '[a]
-div = lifn2 Prelude.div
-mod = lifn2 Prelude.mod
-pow = lifn2 (Prelude.^)
+(//), mod, pow :: Integral a => Fn '[a, a] '[a]
+(//) = lifn2 P.div
+mod = lifn2 P.mod
+pow = lifn2 (P.^)
 
 neg :: Num a => Fn '[a] '[a]
-neg = lifn negate
+neg = lifn P.negate
 
-fpow :: Floating a => Fn '[a, a] '[a]
-fpow = lifn2 (**)
+(**) :: Floating a => Fn '[a, a] '[a]
+(**) = lifn2 (P.**)
 
 eq, neq :: Eq a => Fn '[a, a] '[Bool]
-eq = lifn2 (==)
-neq = lifn2 (/=)
+eq  = lifn2 (P.==)
+neq = lifn2 (P./=)
 
 lt, gt, le, ge :: forall a. Ord a => Fn '[a, a] '[Bool]
-lt = lifn2 (<)
-gt = lifn2 (>)
-le = lifn2 (<=)
-ge = lifn2 (>=)
+lt = lifn2 (P.<)
+gt = lifn2 (P.>)
+le = lifn2 (P.<=)
+ge = lifn2 (P.>=)
 
 cmp :: Ord a => Fn '[a, a] '[Ordering]
 cmp = lifn2 compare
+-- factorial :: (Num a, Eq a) => Fn '[a] '[a]
+-- factorial = get $
+--   put 1 |>
+--   put 1 |> put eq |> curry |> call |>
+--   put 1 |> put (-) |> fflip |> curry |> call |>
+--   put mul |>
+--   put primrec |> curry |> call |> curry |> call |> curry |> call |> curry |> call
 
 ord :: Fn '[Char] '[Int]
 ord = lifn fromEnum
@@ -119,28 +126,14 @@ chr :: Fn '[Int] '[Char]
 chr = lifn toEnum
 
 const :: Fn '[a, b] '[a]
-const = lifn2 Prelude.const
+const = lifn2 P.const
 
 and, or :: Fn '[Bool, Bool] '[Bool]
-and = lifn2 (Prelude.&&)
-or  = lifn2 (Prelude.||)
+and = lifn2 (P.&&)
+or  = lifn2 (P.||)
 
 not :: Fn '[Bool] '[Bool]
-not = lifn Prelude.not
-
-class FListLengthEq (f :: * -> *) (n :: HNat) where
-instance FListLengthEq Nil HZero
-instance (FListLengthEq f n) => FListLengthEq (Cons f) (HSucc n)
-
-type FHListSameLength f h n = (FixedList f, FListLengthEq f n, HLengthEq h n)
-
-map :: forall a b n as bs. (HomStk a n as, HomStk b n bs) => Fn '[Fn '[a] '[b], Stk as] '[Stk bs]
-map (fn ::: as ::: _)
-  = singleton
-  . fromList' (Proxy @n)
-  . Prelude.map (hHead . fn . singleton)
-  . asList (Proxy @n)
-  $ as
+not = lifn P.not
 
 {- Recursion combinators -}
 
@@ -171,7 +164,7 @@ catarec :: forall a b n as. (HomStk a n as)
                '[b]              -- result
 catarec (f ::: b ::: as ::: _)
   = singleton
-  . Prelude.foldr f' b
+  . P.foldr f' b
   . asList (Proxy @n)
   $ as
   where
@@ -186,10 +179,16 @@ anarec :: forall a b n as. (HomStk a n as)
              '[Stk as]                         -- result
 anarec (f ::: b ::: _) = undefined
 
-factorial :: (Num a, Eq a) => Fn '[a] '[a]
-factorial = get $
-  put 1 |>
-  put 1 |> put eq |> curry |> call |>
-  put 1 |> put sub |> fflip |> curry |> call |>
-  put mul |>
-  put primrec |> curry |> call |> curry |> call |> curry |> call |> curry |> call
+{- Operator symbols -}
+
+(!) :: Call as rs => Fn (Fn as rs : as) rs
+(!) = call
+
+
+-- factorial :: (Num a, Eq a) => Fn '[a] '[a]
+-- factorial = get $
+--   put 1 |>
+--   put 1 |> put eq |> curry |> call |>
+--   put 1 |> put (-) |> fflip |> curry |> call |>
+--   put mul |>
+--   put primrec |> curry |> call |> curry |> call |> curry |> call |> curry |> call
