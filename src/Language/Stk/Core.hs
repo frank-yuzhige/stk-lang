@@ -13,8 +13,12 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 
-module Language.Stk.Core where
+module Language.Stk.Core (
+  module Language.Stk.Core,
+  (>>>)
+) where
 
 import GHC.Types
 import GHC.TypeNats
@@ -34,7 +38,6 @@ infixr 2 :::
 type Stk = HList
 
 type Fn as bs = Stk as -> Stk bs
-type Fn0 bs = Fn '[] '[bs]
 type T t    = Fn '[] t
 
 -- | Run the `stk` program on an empty execution stack 
@@ -50,7 +53,7 @@ push :: a -> Stk as -> Stk (a : as)
 push = HCons
 
 -- | alias for push, in stk fn style
-put :: a -> Fn0 a
+put :: a -> Fn '[] '[a]
 put = push
 
 type (:++:) :: [*] -> [*] -> [*]
@@ -150,7 +153,7 @@ lifnX :: forall n n' a as. (Nat2HNat n' ~ n, StepX n a as)
       => Proxy n' -> a -> Stk as -> Stk (StepDownF n a : StepDownS n as)
 lifnX n f = stepX (Proxy @n) . push f
 
-lifn0 :: a -> Fn0 a
+lifn0 :: a -> Fn '[] '[a]
 lifn0 = push
 
 -- | Lift a haskell function to stk fn (arity 2)
@@ -212,6 +215,10 @@ dupcall :: forall a s sa n aa. (LChecks '[a, s, sa, aa], Merge a a aa, Merge s a
         => Fn (Fn a s : a) sa
 dupcall (fn ::: a) = runStk' a $ dup' (Proxy @n) |> fn
 
+-- | Definition of a combinator
+def :: forall n' args ret n. (HLengthEq args n, HNat2Nat n ~ n', Nat2HNat n' ~ n) =>  Fn '[Stk args] ret -> Fn args ret
+def a = runStk . (a .) . put
+
 map :: forall a b n as bs. (HomStk a n as, HomStk b n bs) => Fn '[Fn '[a] '[b], Stk as] '[Stk bs]
 map (fn ::: as ::: _)
   = singleton
@@ -238,5 +245,7 @@ get = fromSingleton . runStk
 
 a |> b = a >>> app b
 a <| b = b >>> app a
+
+_then a b = a >>> app b
 
 infixr 2 <|

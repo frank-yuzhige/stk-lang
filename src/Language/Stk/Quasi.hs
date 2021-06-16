@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -9,19 +10,20 @@
 {-# OPTIONS_GHC -Wno-missing-fields #-}
 
 module Language.Stk.Quasi (
-  decl
+  stk
 ) where
 
 import Data.Void ( Void )
+import Data.Functor.Identity ( Identity )
 import Data.List ( intercalate )
 import Data.Functor ( ($>), void )
 
 import Text.Printf ( printf )
 
-import Language.Haskell.TH
+import Language.Haskell.TH ( Exp, Dec )
 import Language.Haskell.TH.Quote
-import Language.Haskell.TH.Syntax
 import Language.Haskell.Meta.Parse
+import Language.Haskell.Exts ( defaultParseMode, ParseMode(..), Extension(..), KnownExtension( DataKinds, TypeApplications ) )
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -45,17 +47,33 @@ stk language syntax:
 
 -}
 
-data AST where
-  PutInt  :: Int           -> AST
-  PutChar :: Char          -> AST
-  PutFn   :: Int -> String -> AST
 
-put_ = "Language.Stk.Core.put"
-instance Show AST where
-  show (PutInt  i)  = printf "%s(%d)" put_ i
-  show (PutChar c) = printf "%s(%s)"  put_ (show c)
+type HMetaParse n = String -> Either String n
+
+data Elem where
+  PutInt  :: Int           -> Elem
+  PutChar :: Char          -> Elem
+  PutFn   :: Int -> String -> Elem
+
+newtype Elems = MkElems { unElems :: [Elem] }
+instance Show Elems where
+  show = intercalate _then . map show . unElems
+
+
+
+instance Show Elem where
+  show (PutInt  i)  = printf "%s(%d)" _put i
+  show (PutChar c) = printf "%s(%s)"  _put (show c)
   show (PutFn 0 f) = printf "(%s)" f
-  show (PutFn n f) = printf "%s(%s)" put_ (show $ PutFn (n - 1) f)
+  show (PutFn n f) = printf "%s(%s)" _put (show $ PutFn (n - 1) f)
+
+data Def = MkDef {
+  defName :: String,
+  arity   :: Int,
+  defBody :: Elems
+}
+instance Show Def where
+  show (MkDef name arity body) = printf "%s = %s @%d (%s |> %s)" name _def arity _args (show body)
 
 type Parser e s m = (MonadParsec e s m, Token s ~ Char, Tokens s ~ String)
 
@@ -63,12 +81,15 @@ operator :: Parser e s m => m String
 operator = some $ oneOf "!@#$%^&*:|+-/<>."
 
 hardCodedOperator :: Parser e s m => m String
-hardCodedOperator = choice [ string p $> s | (p, s) <- patterns] 
+hardCodedOperator = choice [ string p $> s | (p, s) <- patterns]
   where
-    patterns = 
+    patterns =
       [ ("[]", "_newStk"), (":", "_cons"), (".", "_compose"), ("if", "_if")
       , ("True", "_true"), ("False", "_false")
       ]
+
+nat :: Parser e s m => m Int
+nat = read <$> many digitChar
 
 ident :: Parser e s m => m String
 ident = (:) <$> letterChar <*> many (try (char '_') <|> try letterChar <|> digitChar)
@@ -76,10 +97,10 @@ ident = (:) <$> letterChar <*> many (try (char '_') <|> try letterChar <|> digit
 symbol :: Parser e s m => m String
 symbol = (try hardCodedOperator <|> try ident <|> operator) <* notFollowedBy digitChar
 
-putInt :: Parser e s m => m AST
+putInt :: Parser e s m => m Elem
 putInt = PutInt <$> L.signed space L.decimal
 
-putFn :: Parser e s m => m AST
+putFn :: Parser e s m => m Elem
 putFn = uncurry PutFn <$> parens symbol
 
 parens :: Parser e s m => m a -> m (Int, a)
@@ -89,33 +110,67 @@ parens p = try unwrap <|> ((0, ) <$> p)
       (n, r) <- between (char '(') (char ')') (parens p)
       return (n + 1, r)
 
-parseStkAST :: Parser e s m => m [AST]
-parseStkAST = space *> sepEndBy1 (try putFn <|> putInt) space1
+parseStkElems :: Parser e s m => m Elems
+parseStkElems = do
+  space
+  xs <- sepEndBy1 (try putFn <|> putInt) space1
+  return $ MkElems xs
 
-astToStr :: [AST] -> String
-astToStr = intercalate " Language.Stk.Core.|> " . map show
+parseDefArity :: Parser e s m => m Int
+parseDefArity = try (char '/' *> space *> nat) <|> pure 0
+
+parseStkDef :: Parser e s m => m Def
+parseStkDef = do
+  name  <- ident
+  arity <- between space space parseDefArity
+  char '='
+  body <- parseStkElems
+  char ';'
+  return $ MkDef name arity body
+
+parseStkDefs :: Parser e s m => m [Def]
+parseStkDefs = space *> many (parseStkDef <* space)
 
 mapLeft :: Either t b -> (t -> a)  -> Either a b
 mapLeft (Left  x) f = Left $ f x
 mapLeft (Right y) _ = Right y
 
-parseExpr :: String -> Either String Exp
-parseExpr s = do
-  ast <- parse @Void (parseStkAST <* eof) "" s `mapLeft` errorBundlePretty
-  let src = astToStr ast
-  parseExp src `mapLeft` show
+qquoteExpr :: String -> Either String Exp
+qquoteExpr = qquoteStk parseStkElems show parseExp
 
-decl :: QuasiQuoter
-decl = QuasiQuoter {
-  quoteExp = \s -> do
-    exp <- case parseExpr s of
+qquoteDef :: HMetaParse [Dec]
+qquoteDef = qquoteStk 
+  parseStkDefs 
+  (unlines . map show) 
+  (parseDecsWithMode defaultParseMode { extensions = EnableExtension <$> [DataKinds, TypeApplications]})
+
+
+qquoteStk stkParse stkToMeta metaParse input = do
+  stk <- parse @Void (stkParse <* eof) "" input `mapLeft` errorBundlePretty
+  let src = stkToMeta stk
+  metaParse src
+
+stk :: QuasiQuoter
+stk = QuasiQuoter {
+  quoteExp =  \s -> do
+    exp <- case qquoteExpr s of
       Left  err -> fail err
       Right e   -> return e
-    [e| $(return exp) |]
+    [e| $(return exp) |],
+
+  quoteType = error _stkErr,
+  quotePat = error _stkErr,
+  quoteDec = \s -> do
+    case qquoteDef s of
+      Left  err -> fail err
+      Right e   -> return e
 }
 
--- stk :: QuasiQuoter
--- stk = QuasiQuoter {
---   quoteDec = \s -> do
+_stkErr = "Quasi-quotation 'stk' can only be used as top-level decs or exps"
 
--- }
+
+_put, _def, _args, _then :: String
+_put  = "Language.Stk.put"
+_def  = "Language.Stk.def"
+_args = "Language.Stk.args"
+_then = " Language.Stk.|> "

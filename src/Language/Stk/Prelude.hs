@@ -10,6 +10,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
 
 module Language.Stk.Prelude where
 
@@ -25,7 +26,7 @@ import Data.HList
       HNat(..),
       HLengthEq,
       HList(HNil, HCons),
-      Proxy(..) )
+      Proxy(..), HNat2Nat )
 import Data.FixedList ( Cons((:.)), FixedList, Nil(..) )
 import qualified Data.FixedList as F
 
@@ -67,8 +68,11 @@ uncons :: Fn '[Stk (a : as)] '[a, Stk as]
 uncons ((a ::: stk) ::: _) = runStk $ put stk |> put a
 
 -- | extract all elements from the sub-stk to the current stk
-flat :: Fn '[Stk a] a
-flat (stk ::: _) = stk
+args :: Fn '[Stk a] a
+args (stk ::: _) = stk
+
+lift :: Fn a '[Stk a]
+lift stk = stk ::: HNil 
 
 -- | Function composition
 _compose :: Fn '[Fn a b, Fn b c] '[Fn a c]
@@ -111,6 +115,15 @@ neg = lifn P.negate
 
 (**) :: Floating a => Fn '[a, a] '[a]
 (**) = lifn2 (P.**)
+
+sqrt :: Floating a => Fn '[a] '[a]
+sqrt = lifn P.sqrt
+
+floor :: (RealFrac a, Integral b) => Fn '[a] '[b]
+floor = lifn P.floor
+
+round :: (RealFrac a, Integral b) => Fn '[a] '[b]
+round = lifn P.round
 
 eq, neq :: Eq a => Fn '[a, a] '[Bool]
 eq  = lifn2 (P.==)
@@ -197,8 +210,18 @@ anarec (f ::: b ::: _) = undefined
 (!) :: Call as rs => Fn (Fn as rs : as) rs
 (!) = call
 
-(!:) :: Fn '[Stk (a : as)] '[a, Stk as]
-(!:) = uncons
+(~:) :: Fn '[Stk (a : as)] '[a, Stk as]
+(~:) = uncons
+
+n = def @3 (args |> eq)
+
+c = def @2 (args |> put 1 |> n)
+d = def @2 (args |> put 'c' |> n)
+
+-- c = put 'v' |> put 'a' |> n
+
+-- c = def @'[Bool] (flat |> put 1 |> put 2 |> eq) 
+
 
 -- factorial :: (Num a, Eq a) => Fn '[a] '[a]
 -- factorial = get $
