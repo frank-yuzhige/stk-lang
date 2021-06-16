@@ -42,6 +42,18 @@ pop = hTail
 dup :: Fn '[a] '[a, a]
 dup = dupX (Proxy @1)
 
+-- | Swap 2 elements on top of the stack
+swap :: Fn '[a, b] '[b, a]
+swap (a ::: b ::: _) = b ::: a ::: HNil
+
+-- | Duplicate the second element and bring it to the top
+over :: Fn '[b, a] '[a, b, a]
+over (b ::: a ::: _) = runStk $ put a |> put b |> put a
+
+-- | Rotate the first 3 elements
+rot :: Fn '[a, b, c] '[b, c, a]
+rot (a ::: b ::: c ::: _) = runStk $ put a |> put c |> put b
+
 -- | Create a sub-stk on the current stk
 _newStk :: Fn '[] '[Stk '[]]
 _newStk = singleton
@@ -59,27 +71,28 @@ flat :: Fn '[Stk a] a
 flat (stk ::: _) = stk
 
 -- | Function composition
-compose :: Fn '[Fn a b, Fn b c] '[Fn a c]
-compose (fab ::: fbc ::: _) = singleton (fab >>> fbc)
+_compose :: Fn '[Fn a b, Fn b c] '[Fn a c]
+_compose (fab ::: fbc ::: _) = singleton (fab >>> fbc)
 
 curry :: Fn '[Fn (a : as) r] '[Fn '[a] '[Fn as r]]
 curry (fn ::: _) = singleton $ \(a ::: _) -> singleton $ \as -> fn (a ::: as)
 
 uncurry :: forall a as r. (LCheck as, LCheck r)
          => Fn '[Fn '[a] '[Fn as r]] '[Fn (a : as) r]
-uncurry (fn ::: _) = singleton $ \stk -> eval $ app fn stk
+uncurry (fn ::: _) = singleton $ eval . app fn
 
 flip :: forall a b c. LCheck c
       => Fn '[Fn '[a, b] c] '[Fn '[b, a] c]
 flip (fn ::: _) = singleton $ \(b ::: a ::: _) -> app fn (a ::: b ::: HNil)
 
--- | Swap 2 elements on top of the stack
-swap :: Fn '[a, b] '[b, a]
-swap (a ::: b ::: _) = b ::: a ::: HNil
-
 -- | If statement
-cond :: Fn '[Bool, a, a] '[a]
-cond = lifn3 $ \b tr fl -> if b then tr else fl
+_if :: Fn '[Bool, a, a] '[a]
+_if = lifn3 $ \b tr fl -> if b then tr else fl
+
+-- | Re-export True, False
+_true, _false :: Fn '[] '[Bool]
+_true  = put True
+_false = put False
 
 -- | Maths
 
@@ -184,6 +197,8 @@ anarec (f ::: b ::: _) = undefined
 (!) :: Call as rs => Fn (Fn as rs : as) rs
 (!) = call
 
+(!:) :: Fn '[Stk (a : as)] '[a, Stk as]
+(!:) = uncons
 
 -- factorial :: (Num a, Eq a) => Fn '[a] '[a]
 -- factorial = get $

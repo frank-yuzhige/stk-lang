@@ -46,13 +46,13 @@ stk language syntax:
 -}
 
 data AST where
-  PutInt  :: Int    -> AST
-  PutChar :: Char   -> AST
+  PutInt  :: Int           -> AST
+  PutChar :: Char          -> AST
   PutFn   :: Int -> String -> AST
 
 put_ = "Language.Stk.Core.put"
 instance Show AST where
-  show (PutInt i)  = printf "%s(%d)"  put_ i
+  show (PutInt  i)  = printf "%s(%d)" put_ i
   show (PutChar c) = printf "%s(%s)"  put_ (show c)
   show (PutFn 0 f) = printf "(%s)" f
   show (PutFn n f) = printf "%s(%s)" put_ (show $ PutFn (n - 1) f)
@@ -65,7 +65,10 @@ operator = some $ oneOf "!@#$%^&*:|+-/<>."
 hardCodedOperator :: Parser e s m => m String
 hardCodedOperator = choice [ string p $> s | (p, s) <- patterns] 
   where
-    patterns = [("[]", "_newStk"), (":", "_cons")]
+    patterns = 
+      [ ("[]", "_newStk"), (":", "_cons"), (".", "_compose"), ("if", "_if")
+      , ("True", "_true"), ("False", "_false")
+      ]
 
 ident :: Parser e s m => m String
 ident = (:) <$> letterChar <*> many (try (char '_') <|> try letterChar <|> digitChar)

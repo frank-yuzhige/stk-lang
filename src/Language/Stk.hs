@@ -25,6 +25,8 @@ fact = [decl|
 
 dupcallTest = [decl| 0 3 6 ((+)) call dupcall |]
 
-newTest = [decl| [] 1 : 2 : 3  :|]
+newTest = [decl| [] 1 : 2 : 3 :|]
 
-composeTest = [decl| (swap) (swap) compose |]
+composeTest = [decl| (swap) (swap) . |]
+
+ifTest = [decl| 1 0 3 5 eq if |]
