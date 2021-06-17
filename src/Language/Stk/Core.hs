@@ -40,12 +40,17 @@ type Stk = HList
 type Fn as bs = Stk as -> Stk bs
 type T t    = Fn '[] t
 
+a |> b = a >>> app b
+a <| b = b >>> app a
+
+infixr 2 <|
+
 -- | Run the `stk` program on an empty execution stack 
 runStk :: (Stk '[] -> b) -> b
 runStk = runStk' HNil
 
 -- | Run the `stk` program on a given execution stack
-runStk' :: forall stk a. Stk stk -> (Stk stk -> a) -> a 
+runStk' :: forall stk a. Stk stk -> (Stk stk -> a) -> a
 runStk' = flip ($)
 
 -- | Push a value on to the stack
@@ -171,6 +176,11 @@ lifn2 = lifnX (Proxy @2)
 lifn3 :: (a -> b -> c -> d) -> Fn '[a, b, c] '[d]
 lifn3 = lifnX (Proxy @3)
 
+-- Unpack fn to haskell function
+unpack :: (Stk '[a] -> Stk '[c]) -> a -> c
+unpack fn = fromSingleton . fn . singleton
+
+
 -- | Call the function at the top onto the remaining stack
 class Call' as rs where
   call :: LChecks '[as, rs] => Fn (Fn as rs : as) rs
@@ -224,17 +234,17 @@ instance Dup' HZero '[] as as where
 instance (Dup n r rs rrs, Merge (a : r) (a : rs) arars) => Dup' (HSucc n) (a : r) (a : rs) arars where
   dup' _ (a ::: rs) = merge (a ::: hTake (Proxy @n) rs) (a ::: rs)
 
-dupX :: forall n' a as aas n. (Nat2HNat n' ~ n, Dup n a as aas) 
+dupX :: forall n' a as aas n. (Nat2HNat n' ~ n, Dup n a as aas)
      => Proxy n' -> Fn as aas
 dupX _ = dup' (Proxy @n)
 
-dupcall :: forall a s sa n aa. (LChecks '[a, s, sa, aa], Merge a a aa, Merge s a sa, Dup n a a aa) 
+dupcall :: forall a s sa n aa. (LChecks '[a, s, sa, aa], Merge a a aa, Merge s a sa, Dup n a a aa)
         => Fn (Fn a s : a) sa
 dupcall (fn ::: a) = runStk' a $ dup' (Proxy @n) |> fn
 
 -- | Definition of a combinator
 --   Use case: def @(arity) (args |> function body)
-def :: forall n' args ret n. (HLengthEq args n, HNat2Nat n ~ n', Nat2HNat n' ~ n) 
+def :: forall n' args ret n. (HLengthEq args n, HNat2Nat n ~ n', Nat2HNat n' ~ n)
     => Fn '[Stk args] ret -> Fn args ret
 def a = runStk . (a .) . put
 
@@ -242,13 +252,13 @@ def a = runStk . (a .) . put
 args :: Fn '[Stk a] a
 args (stk ::: _) = stk
 
-map :: forall a b n as bs. (HomStk n a as, HomStk n b bs) 
+map :: forall a b n as bs. (HomStk n a as, HomStk n b bs)
     => Fn '[Fn '[a] '[b], Stk as] '[Stk bs]
 map (fn ::: as ::: _)
   = singleton
-  . fromList' 
+  . fromList'
   . Prelude.map (hHead . fn . singleton)
-  . asList 
+  . asList
   $ as
 
 -- | Specialized `hHead`
@@ -259,9 +269,8 @@ fromSingleton = hHead
 get :: Fn '[] '[a] -> a
 get = fromSingleton . runStk
 
-a |> b = a >>> app b
-a <| b = b >>> app a
+stkIO :: Stk (IO a : ignore) -> IO ()
+stkIO (io ::: _) = void io
 
-_then a b = a >>> app b
-
-infixr 2 <|
+stkMain :: Fn '[] (IO a : ignore) -> IO ()
+stkMain = stkIO . runStk

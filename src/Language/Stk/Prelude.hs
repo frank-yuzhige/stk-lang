@@ -30,6 +30,7 @@ import Data.HList
 
 import qualified Data.List  as P
 import qualified Data.Maybe as P
+import qualified Control.Monad as M
 
 import Prelude hiding ( const, div, mod, map, and, or, not, curry, uncurry, flip )
 import qualified Prelude as P
@@ -174,6 +175,31 @@ fromMaybe = lifn2 P.fromMaybe
 
 maybe :: Fn '[d, a -> d, Maybe a] '[d]
 maybe = lifn3 P.maybe
+
+{- Haskell Monad Combinators -}
+_minject :: Monad m => Fn '[a] '[m a]
+_minject = lifn P.return
+
+-- reversed, since stack is reversed
+(=<<) :: forall a b m. Monad m => Fn '[m a, Fn '[a] '[m b]] '[m b]
+(=<<) (a ::: g ::: _) = lifn2 (P.>>=) (a ::: unpack g ::: HNil)
+
+(<<) :: forall a b m. Monad m => Fn '[m a, m b] '[m b] 
+(<<) (a ::: b ::: _) = lifn2 (M.>>) (a ::: b ::: HNil)
+
+{- IO Combinators -}
+_io :: Fn '[a] '[IO a]
+_io = _minject
+
+print :: Show a => Fn '[a] '[IO ()]
+print = lifn P.print
+
+putStr :: Fn '[String] '[IO ()]
+putStr = lifn P.putStr
+
+putStrLn :: Fn '[String] '[IO ()]
+putStrLn = lifn P.putStrLn
+
 
 {- Recursion combinators -}
 

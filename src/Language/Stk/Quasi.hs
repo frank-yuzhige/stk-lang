@@ -13,6 +13,8 @@ module Language.Stk.Quasi (
   stk
 ) where
 
+import Prelude hiding ( putChar, putStr )
+
 import Data.Void ( Void )
 import Data.Functor.Identity ( Identity )
 import Data.List ( intercalate )
@@ -53,6 +55,7 @@ type HMetaParse n = String -> Either String n
 data Elem where
   PutInt  :: Int           -> Elem
   PutChar :: Char          -> Elem
+  PutStr  :: String        -> Elem
   PutFn   :: Int -> String -> Elem
 
 newtype Elems = MkElems { unElems :: [Elem] }
@@ -62,8 +65,9 @@ instance Show Elems where
 
 
 instance Show Elem where
-  show (PutInt  i)  = printf "%s(%d :: P.Integer)" _put i
+  show (PutInt  i) = printf "%s(%d :: P.Integer)" _put i
   show (PutChar c) = printf "%s(%s)"  _put (show c)
+  show (PutStr  s) = printf "%s(%s)"  _put (show s)
   show (PutFn 0 f) = printf "(%s)" f
   show (PutFn n f) = printf "%s(%s)" _put (show $ PutFn (n - 1) f)
 
@@ -86,6 +90,7 @@ hardCodedOperator = choice [ string p $> s | (p, s) <- patterns]
     patterns =
       [ ("[]", "_newStk"), ("::", "_swapcons"), (":", "_cons"), (".", "_compose"), ("if", "_if")
       , ("True", "_true"), ("False", "_false"), ("Nothing", "_nothing"), ("Just", "_just")
+      , ("IO", "_io")
       ]
 
 nat :: Parser e s m => m Int
@@ -100,6 +105,12 @@ symbol = (try hardCodedOperator <|> try ident <|> operator) <* notFollowedBy dig
 putInt :: Parser e s m => m Elem
 putInt = PutInt <$> L.signed space L.decimal
 
+putChar :: Parser e s m => m Elem
+putChar = PutChar <$> between (char '\'') (char '\'') L.charLiteral
+
+putStr :: Parser e s m => m Elem
+putStr = PutStr <$> (char '"' *> manyTill L.charLiteral (char '"'))
+
 putFn :: Parser e s m => m Elem
 putFn = uncurry PutFn <$> parens symbol
 
@@ -113,7 +124,7 @@ parens p = try unwrap <|> ((0, ) <$> p)
 parseStkElems :: Parser e s m => m Elems
 parseStkElems = do
   space
-  xs <- sepEndBy1 (try putFn <|> putInt) space1
+  xs <- sepEndBy1 (try putInt <|> try putChar <|> try putStr <|> try putFn) space1
   return $ MkElems xs
 
 parseDefArity :: Parser e s m => m Int
