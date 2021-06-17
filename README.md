@@ -1,6 +1,5 @@
 # stk-lang
 
-## Intro
 A [joy](https://www.latrobe.edu.au/humanities/research/research-projects/past-projects/joy-programming-language)-style, statically typed, purely-functional, stack-oriented, combinator language in Haskell EDSL.
 
 Merely a simple project that allows me to play with haskell's type-level hacking & template haskell while learning it :)
@@ -8,6 +7,8 @@ Merely a simple project that allows me to play with haskell's type-level hacking
 ## Getting started
 ```haskell
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 module SomeModule where
 import Language.Stk
 import qualified Prelude as P
