@@ -23,7 +23,7 @@ import Text.Printf ( printf )
 import Language.Haskell.TH ( Exp, Dec )
 import Language.Haskell.TH.Quote
 import Language.Haskell.Meta.Parse
-import Language.Haskell.Exts ( defaultParseMode, ParseMode(..), Extension(..), KnownExtension( DataKinds, TypeApplications ) )
+import Language.Haskell.Exts ( defaultParseMode, ParseMode(..), Extension(..), KnownExtension( DataKinds, TypeApplications, TypeFamilyDependencies, FlexibleContexts ) )
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -62,7 +62,7 @@ instance Show Elems where
 
 
 instance Show Elem where
-  show (PutInt  i)  = printf "%s(%d)" _put i
+  show (PutInt  i)  = printf "%s(%d :: P.Integer)" _put i
   show (PutChar c) = printf "%s(%s)"  _put (show c)
   show (PutFn 0 f) = printf "(%s)" f
   show (PutFn n f) = printf "%s(%s)" _put (show $ PutFn (n - 1) f)
@@ -84,8 +84,8 @@ hardCodedOperator :: Parser e s m => m String
 hardCodedOperator = choice [ string p $> s | (p, s) <- patterns]
   where
     patterns =
-      [ ("[]", "_newStk"), (":", "_cons"), (".", "_compose"), ("if", "_if")
-      , ("True", "_true"), ("False", "_false")
+      [ ("[]", "_newStk"), ("::", "_swapcons"), (":", "_cons"), (".", "_compose"), ("if", "_if")
+      , ("True", "_true"), ("False", "_false"), ("Nothing", "_nothing"), ("Just", "_just")
       ]
 
 nat :: Parser e s m => m Int
@@ -142,8 +142,9 @@ qquoteDef :: HMetaParse [Dec]
 qquoteDef = qquoteStk 
   parseStkDefs 
   (unlines . map show) 
-  (parseDecsWithMode defaultParseMode { extensions = EnableExtension <$> [DataKinds, TypeApplications]})
-
+  (parseDecsWithMode defaultParseMode { extensions = EnableExtension <$> [
+    DataKinds, TypeApplications, TypeFamilyDependencies, FlexibleContexts
+  ]})
 
 qquoteStk stkParse stkToMeta metaParse input = do
   stk <- parse @Void (stkParse <* eof) "" input `mapLeft` errorBundlePretty

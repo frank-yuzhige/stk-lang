@@ -26,9 +26,10 @@ import Data.HList
       HNat(..),
       HLengthEq,
       HList(HNil, HCons),
-      Proxy(..), HNat2Nat )
-import Data.FixedList ( Cons((:.)), FixedList, Nil(..) )
-import qualified Data.FixedList as F
+      Proxy(..), HNat2Nat, HTuple (hToTuple) )
+
+import qualified Data.List  as P
+import qualified Data.Maybe as P
 
 import Prelude hiding ( const, div, mod, map, and, or, not, curry, uncurry, flip )
 import qualified Prelude as P
@@ -63,16 +64,16 @@ _newStk = singleton
 _cons :: Fn '[a, Stk as] '[Stk (a : as)]
 _cons (a ::: stk ::: _) = singleton $ a ::: stk
 
+_swapcons :: Fn '[Stk as, a] '[Stk (a : as)]
+_swapcons (stk ::: a ::: _) = singleton $ a ::: stk
+
 -- | Dual of `cons`, extract the top element from the sub-stk to the current stk
 uncons :: Fn '[Stk (a : as)] '[a, Stk as]
 uncons ((a ::: stk) ::: _) = runStk $ put stk |> put a
 
--- | extract all elements from the sub-stk to the current stk
-args :: Fn '[Stk a] a
-args (stk ::: _) = stk
-
+-- | Push all elements in the current stack to a new sub-stack.
 lift :: Fn a '[Stk a]
-lift stk = stk ::: HNil 
+lift stk = stk ::: HNil
 
 -- | Function composition
 _compose :: Fn '[Fn a b, Fn b c] '[Fn a c]
@@ -125,6 +126,9 @@ floor = lifn P.floor
 round :: (RealFrac a, Integral b) => Fn '[a] '[b]
 round = lifn P.round
 
+castInt :: (Integral a, Num b) => Fn '[a] '[b]
+castInt = lifn P.fromIntegral
+
 eq, neq :: Eq a => Fn '[a, a] '[Bool]
 eq  = lifn2 (P.==)
 neq = lifn2 (P./=)
@@ -137,13 +141,6 @@ ge = lifn2 (P.>=)
 
 cmp :: Ord a => Fn '[a, a] '[Ordering]
 cmp = lifn2 compare
--- factorial :: (Num a, Eq a) => Fn '[a] '[a]
--- factorial = get $
---   put 1 |>
---   put 1 |> put eq |> curry |> call |>
---   put 1 |> put (-) |> fflip |> curry |> call |>
---   put mul |>
---   put primrec |> curry |> call |> curry |> call |> curry |> call |> curry |> call
 
 ord :: Fn '[Char] '[Int]
 ord = lifn fromEnum
@@ -161,6 +158,23 @@ or  = lifn2 (P.||)
 not :: Fn '[Bool] '[Bool]
 not = lifn P.not
 
+{- Maybe combinators -}
+_nothing :: Fn '[] '[Maybe a]
+_nothing = put Nothing
+
+_just :: Fn '[a] '[Maybe a]
+_just = lifn Just
+
+isNothing, isJust :: Fn '[Maybe a] '[Bool]
+isNothing = lifn P.isNothing
+isJust    = lifn P.isJust
+
+fromMaybe :: Fn '[c, Maybe c] '[c]
+fromMaybe = lifn2 P.fromMaybe
+
+maybe :: Fn '[d, a -> d, Maybe a] '[d]
+maybe = lifn3 P.maybe
+
 {- Recursion combinators -}
 
 -- | A more generalized version of joy's `primrec` combinator
@@ -177,12 +191,12 @@ primrec (agg ::: next ::: stop ::: b ::: s ::: _) = app go (s ::: HNil)
     go :: Fn '[a] '[a]
     go stk@(curr ::: xs)
       | isStop    = singleton b
-      | otherwise = agg <| go <| next <| dup $ stk
+      | otherwise = runStk' stk $ dup |> next |> go |> agg
       where
         (isStop ::: _) = stop stk
 
 -- | catamorphism aka fold
-catarec :: forall a b n as. (HomStk a n as)
+catarec :: forall a b n as. (HomStk n a as)
         => Fn '[Fn '[a, b] '[b]  -- aggregation function
                ,b                -- base value
                ,Stk as           -- stack
@@ -191,19 +205,22 @@ catarec :: forall a b n as. (HomStk a n as)
 catarec (f ::: b ::: as ::: _)
   = singleton
   . P.foldr f' b
-  . asList (Proxy @n)
+  . asList
   $ as
   where
     f' k acc = get $ put acc |> put k |> f
 
--- TODO: implement me (non-deterministic generated stk size)
+-- FIXME: implement me (non-deterministic generated stk size)
 -- | anamorphism aka unfold
-anarec :: forall a b n as. (HomStk a n as)
+anarec :: forall a b n as. (HomStk n a as)
        => Fn '[Fn '[b] '[Maybe (Stk '[a, b])]  -- generation function
               ,b                               -- base value
               ]
              '[Stk as]                         -- result
-anarec (f ::: b ::: _) = undefined
+anarec (f ::: base ::: _) = singleton . fromList' . P.unfoldr f'  $ base
+  where
+    f' :: b -> Maybe (a, b)
+    f' b = hToTuple <$> get (put b |> f)
 
 {- Operator symbols -}
 
@@ -213,10 +230,6 @@ anarec (f ::: b ::: _) = undefined
 (~:) :: Fn '[Stk (a : as)] '[a, Stk as]
 (~:) = uncons
 
-n = def @3 (args |> eq)
-
-c = def @2 (args |> put 1 |> n)
-d = def @2 (args |> put 'c' |> n)
 
 -- c = put 'v' |> put 'a' |> n
 

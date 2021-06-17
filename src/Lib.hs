@@ -2,7 +2,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeApplications #-}
 
-
 module Lib
     ( someFunc
     ) where
@@ -25,12 +24,18 @@ fact/1 =
 
 fact10 = 10 fact;
 
-pythX/2= dup * swap dup * + sqrt round;
+pythX/2= dup * swap dup * + castInt sqrt round;
 
 pyth345 = 3 4 pythX;
 
 results = pyth345 fact10;
+
+list = [] 1 : 2 : 3 : (step);
+
+sum = [] 2 : 3 : 4 : 5 : 6 : 0 (+) catarec; 
 |]
+
+
 
 someFunc :: P.IO ()
 someFunc = P.print (runStk results) 

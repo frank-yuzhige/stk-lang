@@ -56,6 +56,14 @@ push = HCons
 put :: a -> Fn '[] '[a]
 put = push
 
+-- | Apply Haskell function to the top of the stack
+top :: (a -> b) -> Stk (a : as) -> Stk (b : as)
+top f (a ::: as) = f a ::: as
+
+-- | Builds a new stack with a single object.
+singleton :: a -> Stk '[a]
+singleton a = a ::: HNil
+
 type (:++:) :: [*] -> [*] -> [*]
 type as :++: bs = (HAppendListR as bs)
 
@@ -176,22 +184,33 @@ instance (Call' as rs) => Call' (a : as) rs
 
 
 -- | Proof for the stack to be homogeneous
--- TODO: refactor using fixed-size list
-class (HLengthEq stk n) => HomStk a n stk | stk -> n, a n -> stk where
-  asList    :: Proxy n -> Stk stk -> [a]
-  fromList' :: Proxy n -> [a] -> Stk stk  -- ^ partial
 
-instance HomStk a HZero '[] where
-  asList    _ _ = []
-  fromList' _ _ = HNil
+type HomStkR :: HNat -> * -> [*]
+type family HomStkR n a = as where
+  HomStkR HZero     a = '[]
+  HomStkR (HSucc n) a = a : HomStkR n a
 
-instance (HomStk a n s) => HomStk a (HSucc n) (a : s) where
-  asList    _ (a ::: s) = a  :  asList    (Proxy @n) s
-  fromList' _ (a  :  s) = a ::: fromList' (Proxy @n) s
-  fromList' _ []        = error "Failed to construct a homogeneous stack: Insufficient elem in list!"
+type HomStkLen :: * -> [*] -> HNat
+type family HomStkLen a as = n where
+  HomStkLen a '[] = HZero
+  HomStkLen a (a : as) = HSucc (HomStkLen a as)
+
+class HomStk' a as where
+  asList    :: (HomStkR n a ~ as, HomStkLen a as ~ n) => Stk as -> [a]
+  fromList' :: (HomStkR n a ~ as, HomStkLen a as ~ n) => [a] -> Stk (HomStkR n a)  -- ^ partial
+
+type HomStk n a as = (HomStk' a as, HomStkR n a ~ as, HomStkLen a as ~ n)
+
+instance HomStk' a '[] where
+  asList    _ = []
+  fromList' _ = HNil
+
+instance (HomStk' a as) => HomStk' a (a : as) where
+  asList    (a ::: s) = a  :  asList s
+  fromList' (a  :  s) = a ::: fromList' s
+  fromList' []        = error "Failed to construct a homogeneous stack: Insufficient elem in list!"
 
 -- | Proof for the hom-stk to also be non-empty
-type NonEmptyHomStk a n stk = (HomStk a n stk, HLt HZero n ~ 'True)
 
 -- | Proof for the stack to be able to duplicate its top n elements
 class (Front' a as aas) => Dup' n a as aas | n as -> aas a where
@@ -203,9 +222,7 @@ instance Dup' HZero '[] as as where
   dup' _ = id
 
 instance (Dup n r rs rrs, Merge (a : r) (a : rs) arars) => Dup' (HSucc n) (a : r) (a : rs) arars where
-  dup' _ (a ::: rs) = merge (a ::: r) (a ::: rs)
-    where 
-      r = hTake (Proxy @n) rs
+  dup' _ (a ::: rs) = merge (a ::: hTake (Proxy @n) rs) (a ::: rs)
 
 dupX :: forall n' a as aas n. (Nat2HNat n' ~ n, Dup n a as aas) 
      => Proxy n' -> Fn as aas
@@ -216,24 +233,23 @@ dupcall :: forall a s sa n aa. (LChecks '[a, s, sa, aa], Merge a a aa, Merge s a
 dupcall (fn ::: a) = runStk' a $ dup' (Proxy @n) |> fn
 
 -- | Definition of a combinator
-def :: forall n' args ret n. (HLengthEq args n, HNat2Nat n ~ n', Nat2HNat n' ~ n) =>  Fn '[Stk args] ret -> Fn args ret
+--   Use case: def @(arity) (args |> function body)
+def :: forall n' args ret n. (HLengthEq args n, HNat2Nat n ~ n', Nat2HNat n' ~ n) 
+    => Fn '[Stk args] ret -> Fn args ret
 def a = runStk . (a .) . put
 
-map :: forall a b n as bs. (HomStk a n as, HomStk b n bs) => Fn '[Fn '[a] '[b], Stk as] '[Stk bs]
+-- | extract all elements from the sub-stk to the current stk
+args :: Fn '[Stk a] a
+args (stk ::: _) = stk
+
+map :: forall a b n as bs. (HomStk n a as, HomStk n b bs) 
+    => Fn '[Fn '[a] '[b], Stk as] '[Stk bs]
 map (fn ::: as ::: _)
   = singleton
-  . fromList' (Proxy @n)
+  . fromList' 
   . Prelude.map (hHead . fn . singleton)
-  . asList (Proxy @n)
+  . asList 
   $ as
-
--- | Apply Haskell function to the top of the stack
-top :: (a -> b) -> Stk (a : as) -> Stk (b : as)
-top f (a ::: as) = f a ::: as
-
--- | Builds a new stack with a single object.
-singleton :: a -> Stk '[a]
-singleton a = a ::: HNil
 
 -- | Specialized `hHead`
 fromSingleton :: Stk '[a] -> a
