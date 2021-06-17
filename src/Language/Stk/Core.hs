@@ -73,7 +73,7 @@ type (:++:) :: [*] -> [*] -> [*]
 type as :++: bs = (HAppendListR as bs)
 
 -- | Find the base stack: [..front, ..base] = total
-class Base' as bs ts | as ts -> bs where
+class Base' as bs ts | as ts -> bs, as bs -> ts where
   base  :: (as :++: bs ~ ts) => Proxy as -> Stk ts -> Stk bs
 
 instance (ts ~ ts') => Base' '[] ts ts' where
@@ -83,7 +83,7 @@ instance (a ~ t, Base' as bs ts) => Base' (a : as) bs (t : ts) where
   base Proxy (_ ::: ts) = base (Proxy @as) ts
 
 -- | Find the front stack: [..front, ..base] = total
-class Front' as bs ts | as bs -> ts where
+class Front' as bs ts | as bs -> ts, as ts -> bs where
   front ::  (as :++: bs ~ ts) => Proxy bs -> Stk ts -> Stk as
 
 instance (bs ~ ts) => Front' '[] bs ts where
@@ -205,22 +205,29 @@ type family HomStkLen a as = n where
   HomStkLen a '[] = HZero
   HomStkLen a (a : as) = HSucc (HomStkLen a as)
 
-class HomStk' a as where
-  asList    :: (HomStkR n a ~ as, HomStkLen a as ~ n) => Stk as -> [a]
-  fromList' :: (HomStkR n a ~ as, HomStkLen a as ~ n) => [a] -> Stk (HomStkR n a)  -- ^ partial
+class (HomStkR (HomStkLen a as) a ~ as) => HomStk a as where
+  asList    :: Stk as -> [a]
+  fromList' :: [a] -> Stk (HomStkR (HomStkLen a as) a)  -- ^ partial
 
-type HomStk n a as = (HomStk' a as, HomStkR n a ~ as, HomStkLen a as ~ n)
-
-instance HomStk' a '[] where
+instance HomStk a '[] where
   asList    _ = []
   fromList' _ = HNil
 
-instance (HomStk' a as) => HomStk' a (a : as) where
+instance (HomStk a as, a ~ a') => HomStk a' (a : as) where
   asList    (a ::: s) = a  :  asList s
   fromList' (a  :  s) = a ::: fromList' s
   fromList' []        = error "Failed to construct a homogeneous stack: Insufficient elem in list!"
 
--- | Proof for the hom-stk to also be non-empty
+-- | Non-empty homogeneous stack
+type NonEmptyHomStk a as = (HomStk a as, HLengthGe as HZero)
+
+-- | Fixed-size homogeneous stack
+type FixedHomStk n a as = (HomStk a as, HomStkLen a as ~ n)
+
+-- | Proof for 2 homogeneous stack to be of same length
+class (HomStk a as, HomStk b bs, SameLength as bs) => SameLengthHomStk a as b bs | a as b -> bs, bs b a -> as
+instance SameLengthHomStk a '[] b '[]
+instance SameLengthHomStk a as b bs => SameLengthHomStk a (a : as) b (b : bs)
 
 -- | Proof for the stack to be able to duplicate its top n elements
 class (Front' a as aas) => Dup' n a as aas | n as -> aas a where
@@ -251,15 +258,6 @@ def a = runStk . (a .) . put
 -- | extract all elements from the sub-stk to the current stk
 args :: Fn '[Stk a] a
 args (stk ::: _) = stk
-
-map :: forall a b n as bs. (HomStk n a as, HomStk n b bs)
-    => Fn '[Fn '[a] '[b], Stk as] '[Stk bs]
-map (fn ::: as ::: _)
-  = singleton
-  . fromList'
-  . Prelude.map (hHead . fn . singleton)
-  . asList
-  $ as
 
 -- | Specialized `hHead`
 fromSingleton :: Stk '[a] -> a

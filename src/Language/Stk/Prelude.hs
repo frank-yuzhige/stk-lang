@@ -73,8 +73,11 @@ uncons :: Fn '[Stk (a : as)] '[a, Stk as]
 uncons ((a ::: stk) ::: _) = runStk $ put stk |> put a
 
 -- | Push all elements in the current stack to a new sub-stack.
-lift :: Fn a '[Stk a]
-lift stk = stk ::: HNil
+_packStk :: Fn a '[Stk a]
+_packStk stk = stk ::: HNil
+
+_unpackStk :: Fn '[Stk a] a
+_unpackStk = hHead 
 
 -- | Function composition
 _compose :: Fn '[Fn a b, Fn b c] '[Fn a c]
@@ -200,6 +203,16 @@ putStr = lifn P.putStr
 putStrLn :: Fn '[String] '[IO ()]
 putStrLn = lifn P.putStrLn
 
+{- Higher-order combinators -}
+
+map :: forall a b as bs. SameLengthHomStk a as b bs
+    => Fn '[Fn '[a] '[b], Stk as] '[Stk bs]
+map (fn ::: as ::: _)
+  = singleton
+  . fromList'
+  . P.map (hHead . fn . singleton)
+  . asList
+  $ as
 
 {- Recursion combinators -}
 
@@ -222,7 +235,7 @@ primrec (agg ::: next ::: stop ::: b ::: s ::: _) = app go (s ::: HNil)
         (isStop ::: _) = stop stk
 
 -- | catamorphism aka fold
-catarec :: forall a b n as. (HomStk n a as)
+catarec :: forall a b as. (HomStk a as)
         => Fn '[Fn '[a, b] '[b]  -- aggregation function
                ,b                -- base value
                ,Stk as           -- stack
@@ -238,7 +251,7 @@ catarec (f ::: b ::: as ::: _)
 
 -- FIXME: implement me (non-deterministic generated stk size)
 -- | anamorphism aka unfold
-anarec :: forall a b n as. (HomStk n a as)
+anarec :: forall a b as. (HomStk a as)
        => Fn '[Fn '[b] '[Maybe (Stk '[a, b])]  -- generation function
               ,b                               -- base value
               ]

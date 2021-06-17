@@ -17,7 +17,7 @@ import Prelude hiding ( putChar, putStr )
 
 import Data.Void ( Void )
 import Data.Functor.Identity ( Identity )
-import Data.List ( intercalate )
+import Data.List ( intercalate, (\\) )
 import Data.Functor ( ($>), void )
 
 import Text.Printf ( printf )
@@ -57,11 +57,20 @@ data Elem where
   PutChar :: Char          -> Elem
   PutStr  :: String        -> Elem
   PutFn   :: Int -> String -> Elem
+  Direct  :: String        -> Elem
 
 newtype Elems = MkElems { unElems :: [Elem] }
-instance Show Elems where
-  show = intercalate _then . map show . unElems
 
+joinOp :: Elem -> String
+joinOp (Direct n) = _arr
+joinOp _          = _then
+
+instance Show Elems where
+  show = joinShow . unElems
+    where
+      joinShow []  = ""
+      joinShow [x] = show x
+      joinShow (x : y : xs) = show x <> joinOp y <> joinShow (y : xs)
 
 
 instance Show Elem where
@@ -70,25 +79,31 @@ instance Show Elem where
   show (PutStr  s) = printf "%s(%s)"  _put (show s)
   show (PutFn 0 f) = printf "(%s)" f
   show (PutFn n f) = printf "%s(%s)" _put (show $ PutFn (n - 1) f)
+  show (Direct  d) = d
 
 data Def = MkDef {
   defName :: String,
   arity   :: Int,
-  defBody :: Elems
+  defBody :: [Elem]
 }
 instance Show Def where
-  show (MkDef name arity body) = printf "%s = %s @%d (%s |> %s)" name _def arity _args (show body)
+  show (MkDef name arity body) = printf "%s = %s @%d (%s)" name _def arity (show $ MkElems (PutFn 0 _args : body))
 
 type Parser e s m = (MonadParsec e s m, Token s ~ Char, Tokens s ~ String)
 
+-- | operators: 1. not start with '$' (direct put), or '#' (macro)
 operator :: Parser e s m => m String
-operator = some $ oneOf "!@#$%^&*:|+-/<>."
+operator = (:) <$> oneOf validOperatorStartChars <*> many (oneOf validOperatorChars)
+  where
+    validOperatorChars = "!@#$%^&*:|+-/\\<>.~?"
+    validOperatorStartChars = validOperatorChars \\ "$#"
 
 hardCodedOperator :: Parser e s m => m String
 hardCodedOperator = choice [ string p $> s | (p, s) <- patterns]
   where
     patterns =
       [ ("[]", "_newStk"), ("::", "_swapcons"), (":", "_cons"), (".", "_compose"), ("if", "_if")
+      , ("![]", _unpack)
       , ("True", "_true"), ("False", "_false"), ("Nothing", "_nothing"), ("Just", "_just")
       , ("IO", "_io")
       ]
@@ -114,6 +129,11 @@ putStr = PutStr <$> (char '"' *> manyTill L.charLiteral (char '"'))
 putFn :: Parser e s m => m Elem
 putFn = uncurry PutFn <$> parens symbol
 
+direct :: Parser e s m => m Elem
+direct = Direct <$> (char '$' *> choice [ string p $> s | (p, s) <- patterns])
+  where
+    patterns = [("[]", _pack)]
+
 parens :: Parser e s m => m a -> m (Int, a)
 parens p = try unwrap <|> ((0, ) <$> p)
   where
@@ -124,7 +144,7 @@ parens p = try unwrap <|> ((0, ) <$> p)
 parseStkElems :: Parser e s m => m Elems
 parseStkElems = do
   space
-  xs <- sepEndBy1 (try putInt <|> try putChar <|> try putStr <|> try putFn) space1
+  xs <- sepEndBy1 (try direct <|> try putInt <|> try putChar <|> try putStr <|> try putFn) space1
   return $ MkElems xs
 
 parseDefArity :: Parser e s m => m Int
@@ -137,7 +157,7 @@ parseStkDef = do
   char '='
   body <- parseStkElems
   char ';'
-  return $ MkDef name arity body
+  return $ MkDef name arity (unElems body)
 
 parseStkDefs :: Parser e s m => m [Def]
 parseStkDefs = space *> many (parseStkDef <* space)
@@ -157,6 +177,9 @@ qquoteDef = qquoteStk
     DataKinds, TypeApplications, TypeFamilyDependencies, FlexibleContexts
   ]})
 
+qquoteStk :: (VisualStream s, TraversableStream s) =>
+  ParsecT Void s Identity t1
+  -> (t1 -> t2) -> (t2 -> Either String b) -> s -> Either String b
 qquoteStk stkParse stkToMeta metaParse input = do
   stk <- parse @Void (stkParse <* eof) "" input `mapLeft` errorBundlePretty
   let src = stkToMeta stk
@@ -181,8 +204,11 @@ stk = QuasiQuoter {
 _stkErr = "Quasi-quotation 'stk' can only be used as top-level decs or exps"
 
 
-_put, _def, _args, _then :: String
+_put, _def, _args, _pack, _unpack, _then, _arr :: String
 _put  = "Language.Stk.put"
 _def  = "Language.Stk.def"
 _args = "Language.Stk.args"
+_pack = "Language.Stk._packStk"
+_unpack = "Language.Stk._unpackStk"
 _then = " Language.Stk.|> "
+_arr  = " Language.Stk.>>> "

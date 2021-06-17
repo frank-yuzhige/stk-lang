@@ -21,7 +21,9 @@ fact/1 =
     (*) 
     primrec;
 
-mn = [] 0 : 10 : (fact) map print;
+add/3 = $[] 0 (+) catarec;
+
+mn = 4 5 6 $[] (fact) map ![] add print;
 
 |]
 
