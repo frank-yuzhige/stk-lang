@@ -19,12 +19,6 @@ fact/1 =
     (*)
     primrec;
 
-add/3 = $[] 0 (+) catarec;
-
-mn = 4 5 6 $[] (fact) map ![] add print;
-
-addMaybe/1 = 1 + 1 (eq) <! ;
-
-1 2 3 add print
+20 10 5 1 $[] (fact) map "world" : "hello" : print
 
 |]

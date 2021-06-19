@@ -140,7 +140,8 @@ direct = Direct <$> (char '$' *> choice [ string p $> s | (p, s) <- patterns])
 lambda :: Parser e s m => m Elem
 lambda = do
   string "</"
-  arity <- try (nat <* between space space (char '=')) <|> pure 0
+  arity <- try (nat <* space <* char '=') <|> pure 0
+  space
   body <- parseStkElems
   string "/>"
   return . Put $ Lambda arity body
@@ -175,6 +176,7 @@ parseStkModule :: Parser e s m => m ([Def], [Elem])
 parseStkModule = do
   normalFns <- parseStkDefs
   mainBody  <- try parseStkElems <|> pure []
+  try (char ';' *> space) <|> pure ()
   return (normalFns, mainBody)
 
 writeModule :: ([Def], [Elem]) -> String
