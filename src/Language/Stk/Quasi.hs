@@ -140,8 +140,7 @@ direct = Direct <$> (char '$' *> choice [ string p $> s | (p, s) <- patterns])
 lambda :: Parser e s m => m Elem
 lambda = do
   string "</"
-  arity <- nat
-  between space space (char '=')
+  arity <- try (nat <* between space space (char '=')) <|> pure 0
   body <- parseStkElems
   string "/>"
   return . Put $ Lambda arity body
@@ -172,6 +171,19 @@ parseStkDef = do
 parseStkDefs :: Parser e s m => m [Def]
 parseStkDefs = space *> many (parseStkDef <* space)
 
+parseStkModule :: Parser e s m => m ([Def], [Elem])
+parseStkModule = do
+  normalFns <- parseStkDefs
+  mainBody  <- try parseStkElems <|> pure []
+  return (normalFns, mainBody)
+
+writeModule :: ([Def], [Elem]) -> String
+writeModule (defs, mainBody)
+  | null mainBody = unlines (map show defs)
+  | otherwise     = unlines (_mainDecl ++ [show (MkDef "_main" 0 mainBody)] ++ map show defs)
+  where
+    _mainDecl = ["main = stkMain _main"]
+
 mapLeft :: Either t b -> (t -> a)  -> Either a b
 mapLeft (Left  x) f = Left $ f x
 mapLeft (Right y) _ = Right y
@@ -181,8 +193,8 @@ qquoteExpr = qquoteStk parseStkElems show parseExp
 
 qquoteDef :: HMetaParse [Dec]
 qquoteDef = qquoteStk
-  parseStkDefs
-  (unlines . map show)
+  parseStkModule
+  writeModule
   (parseDecsWithMode defaultParseMode { extensions = EnableExtension <$> [
     DataKinds, TypeApplications, TypeFamilyDependencies, FlexibleContexts
   ]})

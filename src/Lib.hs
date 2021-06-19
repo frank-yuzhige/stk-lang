@@ -2,9 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Lib
-    ( main
-    ) where
+module Lib where
 
 import Language.Stk
 import qualified Prelude as P
@@ -27,9 +25,6 @@ mn = 4 5 6 $[] (fact) map ![] add print;
 
 addMaybe/1 = 1 + 1 (eq) <! ;
 
+1 2 3 add print
+
 |]
-
-some = put (1 :: P.Int) |> (def @1 (args |> put (1 :: P.Int) |> eq))
-
-main :: P.IO ()
-main = stkMain mn
