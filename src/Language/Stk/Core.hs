@@ -45,7 +45,7 @@ a <| b = b >>> app a
 
 infixr 2 <|
 
--- | Run the `stk` program on an empty execution stack 
+-- | Run the `stk` program on an empty execution stack
 runStk :: (Stk '[] -> b) -> b
 runStk = runStk' HNil
 
@@ -98,7 +98,7 @@ type Append' a b ab = (HAppendList a b, HAppendListR a b ~ ab)
 type Merge a b ab = (Base' a b ab, Front' a b ab, Append' a b ab)
 
 -- | Trivial proofs on top of `Merge`, make GHC happy
-type LCheck c = (c ~ HAppendListR c '[], Base' c '[] c, Front' c '[] c, HAppendList c '[])
+type LCheck c = (c ~ HAppendListR c '[], Base' c '[] c, Front' c '[] c, HAppendList c '[], SameLength c c)
 
 type LChecks :: [[*]] -> Constraint
 type family LChecks xs = c where
@@ -118,7 +118,7 @@ inbase pr fn = fn . front pr
 outbase :: forall a b s bs. (Merge b s bs) => Stk s -> Fn a b -> Fn a bs
 outbase s fn = flip merge s . fn
 
--- | Rebase a `stk` function (fn a -> b) to (fn [..a, ..s] -> [..b, ..s]), with the provided base stack `s` 
+-- | Rebase a `stk` function (fn a -> b) to (fn [..a, ..s] -> [..b, ..s]), with the provided base stack `s`
 rebase :: forall a b s as bs. (Merge a s as, Merge b s bs) => Stk s -> Fn a b -> Fn as bs
 rebase s = outbase s . inbase (Proxy @s)
 
@@ -161,7 +161,7 @@ type family Nat2HNat n = c where
   Nat2HNat n = HSucc (Nat2HNat (n - 1))
 
 -- | Lift a haskell function to `stk` fn. The number of 'steps' of such lift is determined
---   by the provided type that comes with `Proxy`.  
+--   by the provided type that comes with `Proxy`.
 lifnX :: forall n n' a as. (Nat2HNat n' ~ n, StepX n a as)
       => Proxy n' -> a -> Stk as -> Stk (StepDownF n a : StepDownS n as)
 lifnX n f = stepX (Proxy @n) . push f
@@ -230,15 +230,13 @@ instance SameLengthHomStk a '[] b '[]
 instance SameLengthHomStk a as b bs => SameLengthHomStk a (a : as) b (b : bs)
 
 -- | Proof for the stack to be able to duplicate its top n elements
-class (Front' a as aas) => Dup' n a as aas | n as -> aas a where
+class (Merge a as aas, HTake n as a, HLengthEq a n, HLengthGe as n) => Dup n a as aas | n as -> aas a where
   dup' :: (HTake n as a, Merge a as aas) => Proxy n -> Fn as aas
 
-type Dup n a as aas = (Dup' n a as aas, Merge a as aas, HTake n as a, HLengthEq a n, HLengthGe as n)
-
-instance Dup' HZero '[] as as where
+instance Dup HZero '[] as as where
   dup' _ = id
 
-instance (Dup n r rs rrs, Merge (a : r) (a : rs) arars) => Dup' (HSucc n) (a : r) (a : rs) arars where
+instance (Dup n r rs rrs, Merge (a : r) (a : rs) arars) => Dup (HSucc n) (a : r) (a : rs) arars where
   dup' _ (a ::: rs) = merge (a ::: hTake (Proxy @n) rs) (a ::: rs)
 
 dupX :: forall n' a as aas n. (Nat2HNat n' ~ n, Dup n a as aas)

@@ -13,12 +13,16 @@ module Language.Stk.Quasi (
   stk
 ) where
 
-import Prelude hiding ( putChar, putStr )
+import Prelude hiding ( stkChar, stkStr )
+
+import Control.Monad.State.Strict
 
 import Data.Void ( Void )
 import Data.Functor.Identity ( Identity )
 import Data.List ( intercalate, (\\) )
+import Data.Maybe ( fromJust, fromMaybe )
 import Data.Functor ( ($>), void )
+import Data.Map ( Map )
 
 import Text.Printf ( printf )
 
@@ -30,39 +34,25 @@ import Language.Haskell.Exts ( defaultParseMode, ParseMode(..), Extension(..), K
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
-
-import qualified Language.Stk.Core as Stk
-
-
-{-
-stk language syntax:
-
-[stk|>STK   # dependency qualified namespace
-
-  # function definition
-  four = 1 3 (+) call;
-
-  three = 1 4 -;
-
-  seven = three four +
-|]
-
--}
-
+import qualified Data.Map                   as M
+import qualified Language.Stk.Core          as Stk
+import qualified Control.Monad
 
 type HMetaParse n = String -> Either String n
 
 data Elem where
-  PutInt  :: Int           -> Elem
-  PutChar :: Char          -> Elem
-  PutStr  :: String        -> Elem
-  PutFn   :: Int -> String -> Elem
-  Direct  :: String        -> Elem
+  EInt    :: Int             -> Elem
+  EChar   :: Char            -> Elem
+  EStr    :: String          -> Elem
+  ESymbol :: String   -> Elem
+  Put     :: Elem -> Elem
+  Direct  :: String          -> Elem
+  Lambda  :: Arity -> [Elem] -> Elem
 
 newtype Elems = MkElems { unElems :: [Elem] }
 
 joinOp :: Elem -> String
-joinOp (Direct n) = _arr
+joinOp (Direct _) = _arr
 joinOp _          = _then
 
 instance Show Elems where
@@ -72,38 +62,46 @@ instance Show Elems where
       joinShow [x] = show x
       joinShow (x : y : xs) = show x <> joinOp y <> joinShow (y : xs)
 
-
 instance Show Elem where
-  show (PutInt  i) = printf "%s(%d :: P.Integer)" _put i
-  show (PutChar c) = printf "%s(%s)"  _put (show c)
-  show (PutStr  s) = printf "%s(%s)"  _put (show s)
-  show (PutFn 0 f) = printf "(%s)" f
-  show (PutFn n f) = printf "%s(%s)" _put (show $ PutFn (n - 1) f)
+  show (EInt  i)   = printf "(%d :: P.Integer)" i
+  show (EChar c)   = printf "(%s)" (show c)
+  show (EStr  s)   = printf "(%s)" (show s)
+  show (ESymbol s) = printf "(%s)" s
   show (Direct  d) = d
+  show (Put     e) = printf "%s(%s)" _put (show e)
+  show (Lambda a bs) = printf "(%s @%d %s)" _def a (show $ MkElems (ESymbol _args : bs))
+
+type Arity = Int
 
 data Def = MkDef {
   defName :: String,
-  arity   :: Int,
+  arity   :: Arity,
   defBody :: [Elem]
 }
-instance Show Def where
-  show (MkDef name arity body) = printf "%s = %s @%d (%s)" name _def arity (show $ MkElems (PutFn 0 _args : body))
 
-type Parser e s m = (MonadParsec e s m, Token s ~ Char, Tokens s ~ String)
+instance Show Def where
+  show (MkDef name arity body) = printf "%s = %s @%d (%s)" name _def arity (show $ MkElems (ESymbol _args : body))
+
+type Parser e s m = (MonadParsec e String m, MonadFail m)
 
 -- | operators: 1. not start with '$' (direct put), or '#' (macro)
 operator :: Parser e s m => m String
-operator = (:) <$> oneOf validOperatorStartChars <*> many (oneOf validOperatorChars)
+operator = try $ do
+  x <- (:) <$> oneOf validOperatorStartChars <*> many (oneOf validOperatorChars)
+  forM_ reservedOps $ \(op, cause) ->
+    when (x == op) $ fail cause
+  return x
   where
     validOperatorChars = "!@#$%^&*:|+-/\\<>.~?"
     validOperatorStartChars = validOperatorChars \\ "$#"
+    reservedOps = [("/>", "end-of-lambda")]
 
 hardCodedOperator :: Parser e s m => m String
 hardCodedOperator = choice [ string p $> s | (p, s) <- patterns]
   where
     patterns =
       [ ("[]", "_newStk"), ("::", "_swapcons"), (":", "_cons"), (".", "_compose"), ("if", "_if")
-      , ("![]", _unpack)
+      , ("![]", _unpack), ("<!", "dupcall")
       , ("True", "_true"), ("False", "_false"), ("Nothing", "_nothing"), ("Just", "_just")
       , ("IO", "_io")
       ]
@@ -117,22 +115,36 @@ ident = (:) <$> letterChar <*> many (try (char '_') <|> try letterChar <|> digit
 symbol :: Parser e s m => m String
 symbol = (try hardCodedOperator <|> try ident <|> operator) <* notFollowedBy digitChar
 
-putInt :: Parser e s m => m Elem
-putInt = PutInt <$> L.signed space L.decimal
+stkInt :: Parser e s m => m Elem
+stkInt = Put . EInt <$> L.signed space L.decimal
 
-putChar :: Parser e s m => m Elem
-putChar = PutChar <$> between (char '\'') (char '\'') L.charLiteral
+stkChar :: Parser e s m => m Elem
+stkChar = Put . EChar <$> between (char '\'') (char '\'') L.charLiteral
 
-putStr :: Parser e s m => m Elem
-putStr = PutStr <$> (char '"' *> manyTill L.charLiteral (char '"'))
+stkStr :: Parser e s m => m Elem
+stkStr = Put . EStr <$> (char '"' *> manyTill L.charLiteral (char '"'))
 
-putFn :: Parser e s m => m Elem
-putFn = uncurry PutFn <$> parens symbol
+stkSymbol :: Parser e s m => m Elem
+stkSymbol = ESymbol <$> symbol
+
+stkElem :: Parser e s m => m Elem
+stkElem = do
+  (puts, elem) <- parens (try lambda <|> try stkInt <|> try stkChar <|> try stkStr <|> stkSymbol)
+  return $ foldr ($) elem [Put | _ <- [1..puts]]
 
 direct :: Parser e s m => m Elem
 direct = Direct <$> (char '$' *> choice [ string p $> s | (p, s) <- patterns])
   where
     patterns = [("[]", _pack)]
+
+lambda :: Parser e s m => m Elem
+lambda = do
+  string "</"
+  arity <- nat
+  between space space (char '=')
+  body <- parseStkElems
+  string "/>"
+  return . Put $ Lambda arity body
 
 parens :: Parser e s m => m a -> m (Int, a)
 parens p = try unwrap <|> ((0, ) <$> p)
@@ -141,11 +153,8 @@ parens p = try unwrap <|> ((0, ) <$> p)
       (n, r) <- between (char '(') (char ')') (parens p)
       return (n + 1, r)
 
-parseStkElems :: Parser e s m => m Elems
-parseStkElems = do
-  space
-  xs <- sepEndBy1 (try direct <|> try putInt <|> try putChar <|> try putStr <|> try putFn) space1
-  return $ MkElems xs
+parseStkElems :: Parser e s m => m [Elem]
+parseStkElems = sepEndBy1 (try direct <|> stkElem) space1
 
 parseDefArity :: Parser e s m => m Int
 parseDefArity = try (char '/' *> space *> nat) <|> pure 0
@@ -155,9 +164,10 @@ parseStkDef = do
   name  <- ident
   arity <- between space space parseDefArity
   char '='
+  space
   body <- parseStkElems
   char ';'
-  return $ MkDef name arity (unElems body)
+  return $ MkDef name arity body
 
 parseStkDefs :: Parser e s m => m [Def]
 parseStkDefs = space *> many (parseStkDef <* space)
@@ -170,16 +180,13 @@ qquoteExpr :: String -> Either String Exp
 qquoteExpr = qquoteStk parseStkElems show parseExp
 
 qquoteDef :: HMetaParse [Dec]
-qquoteDef = qquoteStk 
-  parseStkDefs 
-  (unlines . map show) 
+qquoteDef = qquoteStk
+  parseStkDefs
+  (unlines . map show)
   (parseDecsWithMode defaultParseMode { extensions = EnableExtension <$> [
     DataKinds, TypeApplications, TypeFamilyDependencies, FlexibleContexts
   ]})
 
-qquoteStk :: (VisualStream s, TraversableStream s) =>
-  ParsecT Void s Identity t1
-  -> (t1 -> t2) -> (t2 -> Either String b) -> s -> Either String b
 qquoteStk stkParse stkToMeta metaParse input = do
   stk <- parse @Void (stkParse <* eof) "" input `mapLeft` errorBundlePretty
   let src = stkToMeta stk

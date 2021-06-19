@@ -37,6 +37,7 @@ library
   build-depends:
       HList >=0.5.0.0
     , base >=4.7 && <4.12
+    , containers >=0.6.2.1
     , fixed-list >=0.1.6
     , ghc-prim >=0.7.0
     , haskell-src-exts >=1.23.1
@@ -57,6 +58,7 @@ executable stk-lang-exe
   build-depends:
       HList >=0.5.0.0
     , base >=4.7 && <4.12
+    , containers >=0.6.2.1
     , fixed-list >=0.1.6
     , ghc-prim >=0.7.0
     , haskell-src-exts >=1.23.1
@@ -79,6 +81,7 @@ test-suite stk-lang-test
   build-depends:
       HList >=0.5.0.0
     , base >=4.7 && <4.12
+    , containers >=0.6.2.1
     , fixed-list >=0.1.6
     , ghc-prim >=0.7.0
     , haskell-src-exts >=1.23.1
