@@ -13,7 +13,6 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Language.Stk.Core (
   module Language.Stk.Core,
@@ -69,8 +68,14 @@ top f (a ::: as) = f a ::: as
 singleton :: a -> Stk '[a]
 singleton a = a ::: HNil
 
+class IsStk (a :: [*])
+instance IsStk '[]
+instance IsStk ts => IsStk (t : ts)
+
+type SameLengthStk as bs = (IsStk as, IsStk bs, SameLength as bs)
+
 type (:++:) :: [*] -> [*] -> [*]
-type as :++: bs = (HAppendListR as bs)
+type as :++: bs = HAppendListR as bs
 
 -- | Find the base stack: [..front, ..base] = total
 class Base' as bs ts | as ts -> bs, as bs -> ts where
@@ -187,14 +192,11 @@ class Call' as rs where
   call = eval
 
 type Call as rs = (Call' as rs, LCheck as, LCheck rs)
-
 instance Call' '[] rs
-
 instance (Call' as rs) => Call' (a : as) rs
 
 
 -- | Proof for the stack to be homogeneous
-
 type HomStkR :: HNat -> * -> [*]
 type family HomStkR n a = as where
   HomStkR HZero     a = '[]
@@ -243,9 +245,34 @@ dupX :: forall n' a as aas n. (Nat2HNat n' ~ n, Dup n a as aas)
      => Proxy n' -> Fn as aas
 dupX _ = dup' (Proxy @n)
 
-dupcall :: forall a s sa n aa. (LChecks '[a, s, sa, aa], Merge a a aa, Merge s a sa, Dup n a a aa)
+class (SameLength as bs) => Rot (n :: HNat) as bs | n as -> bs where
+  rot' :: Proxy n -> Fn as bs
+
+instance (SameLength as as) => Rot HZero as as where
+  rot' _ = id
+
+instance (SameLength (a : s) sa, Merge s '[a] sa) => Rot (HSucc HZero) (a : s) sa where
+  rot' _ (a ::: s) = merge s (singleton a)
+
+instance ( Rot (HSucc n) (a : b : s) (b : s :++: '[a])
+         , Merge s '[a, b] sab
+         , SameLength (a : b : s) sab)
+         => Rot (HSucc (HSucc n)) (a : b : s) sab where
+  rot' _ (a ::: b ::: s) = hAppend s (a ::: b ::: HNil)
+    where
+      b ::: sa = rot' @(HSucc n) @(a : b : s) Proxy (a ::: b ::: s)
+
+rotX :: forall n' as bs n. (Rot n as bs, Nat2HNat n' ~ n)
+     => Proxy n' -> Fn as bs
+rotX _ = rot' (Proxy @n)
+
+dupcall :: forall a s sa n aa. (Merge s a sa, Dup n a a aa)
         => Fn (Fn a s : a) sa
 dupcall (fn ::: a) = runStk' a $ dup' (Proxy @n) |> fn
+
+revdupcall :: forall a r ar ra aa nd nr. (Merge a r ar, Merge r a ra, Dup nd a a aa, Rot nr ra ar, HLengthEq r nr)
+           => Fn (Fn a r : a) ar
+revdupcall (fn ::: a) = runStk' a $ dup' (Proxy @nd) |> fn >>> rot' (Proxy @nr)
 
 -- | Definition of a combinator
 --   Use case: def @(arity) (args |> function body)

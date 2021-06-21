@@ -44,10 +44,11 @@ data Elem where
   EInt    :: Int             -> Elem
   EChar   :: Char            -> Elem
   EStr    :: String          -> Elem
-  ESymbol :: String   -> Elem
-  Put     :: Elem -> Elem
+  ESymbol :: String          -> Elem
+  Put     :: Elem            -> Elem
   Direct  :: String          -> Elem
   Lambda  :: Arity -> [Elem] -> Elem
+  StkLit  :: [Elem]          -> Elem
 
 newtype Elems = MkElems { unElems :: [Elem] }
 
@@ -63,13 +64,14 @@ instance Show Elems where
       joinShow (x : y : xs) = show x <> joinOp y <> joinShow (y : xs)
 
 instance Show Elem where
-  show (EInt  i)   = printf "(%d :: P.Integer)" i
-  show (EChar c)   = printf "(%s)" (show c)
-  show (EStr  s)   = printf "(%s)" (show s)
-  show (ESymbol s) = printf "(%s)" s
-  show (Direct  d) = d
-  show (Put     e) = printf "%s(%s)" _put (show e)
+  show (EInt  i)     = printf "(%d :: P.Integer)" i
+  show (EChar c)     = printf "(%s)" (show c)
+  show (EStr  s)     = printf "(%s)" (show s)
+  show (ESymbol s)   = printf "(%s)" s
+  show (Direct  d)   = d
+  show (Put     e)   = printf "%s(%s)" _put (show e)
   show (Lambda a bs) = printf "(%s @%d %s)" _def a (show $ MkElems (ESymbol _args : bs))
+  show (StkLit es)   = show $ MkElems (ESymbol _newStk : concat [[e, ESymbol _cons] | e <- es])
 
 type Arity = Int
 
@@ -101,7 +103,7 @@ hardCodedOperator = choice [ string p $> s | (p, s) <- patterns]
   where
     patterns =
       [ ("[]", "_newStk"), ("::", "_swapcons"), (":", "_cons"), (".", "_compose"), ("if", "_if")
-      , ("![]", _unpack), ("<!", "dupcall")
+      , ("![]", _unpack)
       , ("True", "_true"), ("False", "_false"), ("Nothing", "_nothing"), ("Just", "_just")
       , ("IO", "_io")
       ]
@@ -147,7 +149,7 @@ lambda = do
   return . Put $ Lambda arity body
 
 parens :: Parser e s m => m a -> m (Int, a)
-parens p = try unwrap <|> ((0, ) <$> p)
+parens p = try unwrap <|> ((0,) <$> p)
   where
     unwrap = do
       (n, r) <- between (char '(') (char ')') (parens p)
@@ -226,6 +228,7 @@ _stkErr = "Quasi-quotation 'stk' can only be used as top-level decs or exps"
 
 
 _put, _def, _args, _pack, _unpack, _then, _arr :: String
+_newStk, _cons :: String
 _put  = "Language.Stk.put"
 _def  = "Language.Stk.def"
 _args = "Language.Stk.args"
@@ -233,3 +236,5 @@ _pack = "Language.Stk._packStk"
 _unpack = "Language.Stk._unpackStk"
 _then = " Language.Stk.|> "
 _arr  = " Language.Stk.>>> "
+_newStk = "Language.Stk._newStk"
+_cons = "Language.Stk._cons"
