@@ -47,15 +47,19 @@ dup = dupX (Proxy @1)
 
 -- | Swap 2 elements on top of the stack
 swap :: Fn '[a, b] '[b, a]
-swap (a ::: b ::: _) = b ::: a ::: HNil
+swap = rotX (Proxy @1)
+
+-- | Rotate 3 elements on top of the stack
+rot :: Fn '[a, b, c] '[b, c, a]
+rot = rotX (Proxy @1)
 
 -- | Duplicate the second element and bring it to the top
 over :: Fn '[b, a] '[a, b, a]
 over (b ::: a ::: _) = runStk $ put a |> put b |> put a
 
 -- | Rotate the first 3 elements
-rot :: Fn '[a, b, c] '[b, c, a]
-rot (a ::: b ::: c ::: _) = runStk $ put a |> put c |> put b
+-- rot :: Fn '[a, b, c] '[b, c, a]
+-- rot (a ::: b ::: c ::: _) = runStk $ put a |> put c |> put b
 
 -- | Create a sub-stk on the current stk
 _newStk :: Fn '[] '[Stk '[]]
@@ -77,7 +81,7 @@ _packStk :: Fn a '[Stk a]
 _packStk stk = stk ::: HNil
 
 _unpackStk :: Fn '[Stk a] a
-_unpackStk = hHead 
+_unpackStk = hHead
 
 -- | Function composition
 _compose :: Fn '[Fn a b, Fn b c] '[Fn a c]
@@ -187,7 +191,7 @@ _minject = lifn P.return
 (=<<) :: forall a b m. Monad m => Fn '[m a, Fn '[a] '[m b]] '[m b]
 (=<<) (a ::: g ::: _) = lifn2 (P.>>=) (a ::: unpack g ::: HNil)
 
-(<<) :: forall a b m. Monad m => Fn '[m a, m b] '[m b] 
+(<<) :: forall a b m. Monad m => Fn '[m a, m b] '[m b]
 (<<) (a ::: b ::: _) = lifn2 (M.>>) (a ::: b ::: HNil)
 
 {- IO Combinators -}
@@ -266,19 +270,8 @@ anarec (f ::: base ::: _) = singleton . fromList' . P.unfoldr f'  $ base
 (!) :: Call as rs => Fn (Fn as rs : as) rs
 (!) = call
 
+(*!) = dupcall
+(!*) = revdupcall
+
 (~:) :: Fn '[Stk (a : as)] '[a, Stk as]
 (~:) = uncons
-
-
--- c = put 'v' |> put 'a' |> n
-
--- c = def @'[Bool] (flat |> put 1 |> put 2 |> eq) 
-
-
--- factorial :: (Num a, Eq a) => Fn '[a] '[a]
--- factorial = get $
---   put 1 |>
---   put 1 |> put eq |> curry |> call |>
---   put 1 |> put (-) |> fflip |> curry |> call |>
---   put mul |>
---   put primrec |> curry |> call |> curry |> call |> curry |> call |> curry |> call

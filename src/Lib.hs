@@ -19,6 +19,6 @@ fact/1 =
     (*)
     primrec;
 
-20 10 5 1 $[] (fact) map "world" : "hello" : print
+1 2 (+) !* print
 
 |]

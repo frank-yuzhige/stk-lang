@@ -101,7 +101,7 @@ hardCodedOperator = choice [ string p $> s | (p, s) <- patterns]
   where
     patterns =
       [ ("[]", "_newStk"), ("::", "_swapcons"), (":", "_cons"), (".", "_compose"), ("if", "_if")
-      , ("![]", _unpack), ("<!", "dupcall")
+      , ("![]", _unpack)
       , ("True", "_true"), ("False", "_false"), ("Nothing", "_nothing"), ("Just", "_just")
       , ("IO", "_io")
       ]
